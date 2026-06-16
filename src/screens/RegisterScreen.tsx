@@ -9,11 +9,10 @@ import {
   Alert,
 } from "react-native";
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
+
 import AppInput from "../components/AppInput";
 import PrimaryButton from "../components/PrimaryButton";
-
-const USER_KEY = "APP_USER";
+import { saveUser } from "../utils/auth";
 
 export default function RegisterScreen({ navigation }: any) {
   const [fullName, setFullName] = useState("");
@@ -50,16 +49,14 @@ export default function RegisterScreen({ navigation }: any) {
       setLoading(true);
 
       const userData = {
-        fullName,
-        phone,
-        nationalId,
+        fullName: fullName.trim(),
+        phone: phone.trim(),
+        nationalId: nationalId.trim(),
+        password,
         createdAt: new Date().toISOString(),
       };
 
-      await AsyncStorage.setItem(
-        USER_KEY,
-        JSON.stringify(userData)
-      );
+      await saveUser(userData);
 
       Alert.alert(
         "Success",

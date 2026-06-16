@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 // Screens
 import WelcomeScreen from "../screens/WelcomeScreen";
 import RegisterScreen from "../screens/RegisterScreen";
+import LoginScreen from "../screens/LoginScreen";
 import ContactsScreen from "../screens/ContactsScreen";
 import HomeScreen from "../screens/HomeScreen";
 import CommunityAlertsScreen from "../screens/CommunityAlertsScreen";
@@ -42,6 +43,7 @@ export default function AppNavigator() {
         {/* Auth Flow */}
         <Stack.Screen name="Welcome" component={WelcomeScreen} />
         <Stack.Screen name="Register" component={RegisterScreen} />
+        <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="Contacts" component={ContactsScreen} />
 
         {/* Main User App */}
