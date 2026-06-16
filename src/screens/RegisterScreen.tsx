@@ -6,13 +6,47 @@ import {
   ScrollView,
   StatusBar,
   TouchableOpacity,
-  Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
-
 
 import AppInput from "../components/AppInput";
 import PrimaryButton from "../components/PrimaryButton";
 import { saveUser } from "../utils/auth";
+import { showAlert } from "../utils/alert";
+import { COLORS } from "../theme/colors";
+
+type FieldErrors = {
+  fullName?: string;
+  phone?: string;
+  password?: string;
+};
+
+function validateForm(
+  fullName: string,
+  phone: string,
+  password: string
+): FieldErrors {
+  const errors: FieldErrors = {};
+
+  if (!fullName.trim()) {
+    errors.fullName = "Full name is required.";
+  }
+
+  if (!phone.trim()) {
+    errors.phone = "Phone number is required.";
+  } else if (phone.replace(/\D/g, "").length < 7) {
+    errors.phone = "Enter a valid phone number.";
+  }
+
+  if (!password.trim()) {
+    errors.password = "Password is required.";
+  } else if (password.length < 6) {
+    errors.password = "Password must be at least 6 characters.";
+  }
+
+  return errors;
+}
 
 export default function RegisterScreen({ navigation }: any) {
   const [fullName, setFullName] = useState("");
@@ -20,59 +54,40 @@ export default function RegisterScreen({ navigation }: any) {
   const [nationalId, setNationalId] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [formError, setFormError] = useState("");
+
+  const clearFieldError = (field: keyof FieldErrors) => {
+    if (fieldErrors[field]) {
+      setFieldErrors((prev) => ({ ...prev, [field]: undefined }));
+    }
+    if (formError) setFormError("");
+  };
 
   const handleRegister = async () => {
-    if (!fullName.trim()) {
-      Alert.alert("Missing Name", "Please enter your full name.");
-      return;
-    }
+    const errors = validateForm(fullName, phone, password);
+    setFieldErrors(errors);
+    setFormError("");
 
-    if (!phone.trim()) {
-      Alert.alert("Missing Phone Number", "Please enter your phone number.");
-      return;
-    }
-
-    if (!password.trim()) {
-      Alert.alert("Missing Password", "Please create a password.");
-      return;
-    }
-
-    if (password.length < 6) {
-      Alert.alert(
-        "Weak Password",
-        "Password must be at least 6 characters."
-      );
+    if (Object.keys(errors).length > 0) {
+      setFormError("Please complete all required fields.");
       return;
     }
 
     try {
       setLoading(true);
 
-      const userData = {
+      await saveUser({
         fullName: fullName.trim(),
         phone: phone.trim(),
         nationalId: nationalId.trim(),
         password,
         createdAt: new Date().toISOString(),
-      };
+      });
 
-      await saveUser(userData);
-
-      Alert.alert(
-        "Success",
-        "Account created successfully",
-        [
-          {
-            text: "Continue",
-            onPress: () => navigation.replace("Contacts"),
-          },
-        ]
-      );
-    } catch (error) {
-      Alert.alert(
-        "Error",
-        "Failed to create account. Please try again."
-      );
+      navigation.replace("Contacts");
+    } catch {
+      showAlert("Error", "Failed to create account. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -80,94 +95,111 @@ export default function RegisterScreen({ navigation }: any) {
 
   return (
     <View style={styles.container}>
-      <StatusBar
-        barStyle="light-content"
-        backgroundColor="#001F3F"
-      />
+      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
 
-      {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity
+          style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
           <Text style={styles.backArrow}>←</Text>
         </TouchableOpacity>
 
-        <Text style={styles.headerTitle}>
-          Create Account
-        </Text>
-      </View>
-
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <AppInput
-          label="Full Name"
-          placeholder="Enter your full name"
-          value={fullName}
-          onChangeText={setFullName}
-        />
-
-        <AppInput
-          label="Phone Number"
-          placeholder="+220 7907926"
-          keyboardType="phone-pad"
-          value={phone}
-          onChangeText={setPhone}
-        />
-
-        <AppInput
-          label="National ID"
-          placeholder="Enter your National ID"
-          value={nationalId}
-          onChangeText={setNationalId}
-        />
-
-        <AppInput
-          label="Password"
-          placeholder="Create a strong password"
-          secure
-          value={password}
-          onChangeText={setPassword}
-        />
-
-        {/* LOGIN SECTION */}
-        <View style={styles.loginContainer}>
-          <View style={styles.dividerContainer}>
-            <View style={styles.divider} />
-            <Text style={styles.dividerText}>OR</Text>
-            <View style={styles.divider} />
-          </View>
-
-          <Text style={styles.loginText}>
-            Already have an account?
+        <View style={styles.headerTextWrap}>
+          <Text style={styles.headerTitle}>Create Account</Text>
+          <Text style={styles.headerSubtitle}>
+            Join Civic Shield to protect your community
           </Text>
-
-          <TouchableOpacity
-            style={styles.loginButton}
-            onPress={() =>
-              navigation.navigate("Login")
-            }
-          >
-            <Text style={styles.loginButtonText}>
-              Login to Your Account
-            </Text>
-          </TouchableOpacity>
         </View>
-      </ScrollView>
-
-      {/* REGISTER BUTTON */}
-      <View style={styles.buttonContainer}>
-        <PrimaryButton
-          title={
-            loading
-              ? "Creating Account..."
-              : "Continue"
-          }
-          onPress={handleRegister}
-        />
       </View>
+
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Your details</Text>
+            <Text style={styles.requiredLegend}>
+              Fields marked with <Text style={styles.requiredStar}>*</Text> are
+              required
+            </Text>
+
+            {formError ? (
+              <View style={styles.formErrorBanner}>
+                <Text style={styles.formErrorText}>{formError}</Text>
+              </View>
+            ) : null}
+
+            <AppInput
+              label="Full Name"
+              placeholder="e.g. Bakary Malang"
+              value={fullName}
+              onChangeText={(text) => {
+                setFullName(text);
+                clearFieldError("fullName");
+              }}
+              required
+              error={fieldErrors.fullName}
+            />
+
+            <AppInput
+              label="Phone Number"
+              placeholder="+220 7907926"
+              keyboardType="phone-pad"
+              value={phone}
+              onChangeText={(text) => {
+                setPhone(text);
+                clearFieldError("phone");
+              }}
+              required
+              error={fieldErrors.phone}
+              hint="Use the number you'll sign in with"
+            />
+
+            <AppInput
+              label="National ID"
+              placeholder="Enter your National ID"
+              value={nationalId}
+              onChangeText={setNationalId}
+              optional
+            />
+
+            <AppInput
+              label="Password"
+              placeholder="Create a strong password"
+              secure
+              value={password}
+              onChangeText={(text) => {
+                setPassword(text);
+                clearFieldError("password");
+              }}
+              required
+              error={fieldErrors.password}
+              hint="Minimum 6 characters"
+            />
+          </View>
+        </ScrollView>
+
+        <View style={styles.buttonContainer}>
+          <PrimaryButton
+            title={loading ? "Setting up your account..." : "Join Civic Shield"}
+            onPress={handleRegister}
+            disabled={loading}
+          />
+
+          <View style={styles.loginContainer}>
+            <Text style={styles.loginText}>Already have an account? </Text>
+            <TouchableOpacity onPress={() => navigation.navigate("Login")}>
+              <Text style={styles.loginLink}>Sign in</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -175,97 +207,130 @@ export default function RegisterScreen({ navigation }: any) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#F1F5F9",
+  },
+
+  flex: {
+    flex: 1,
   },
 
   header: {
-    backgroundColor: "#001F3F",
-    paddingTop: 70,
-    paddingBottom: 15,
+    backgroundColor: COLORS.primary,
+    paddingTop: 56,
+    paddingBottom: 28,
     paddingHorizontal: 20,
-    flexDirection: "row",
+  },
+
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.12)",
     alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
   },
 
   backArrow: {
-    fontSize: 28,
+    fontSize: 22,
     color: "#FFFFFF",
-    marginRight: 12,
-    fontWeight: "bold",
+    fontWeight: "700",
+  },
+
+  headerTextWrap: {
+    gap: 6,
   },
 
   headerTitle: {
-    fontSize: 22,
-    fontWeight: "700",
+    fontSize: 28,
+    fontWeight: "800",
     color: "#FFFFFF",
+    letterSpacing: -0.5,
+  },
+
+  headerSubtitle: {
+    fontSize: 15,
+    color: "#CBD5E1",
+    lineHeight: 22,
   },
 
   scrollContent: {
     padding: 20,
-    paddingBottom: 30,
+    paddingBottom: 24,
+  },
+
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 20,
+    elevation: 3,
+  },
+
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: COLORS.text,
+    marginBottom: 6,
+  },
+
+  requiredLegend: {
+    fontSize: 13,
+    color: "#64748B",
+    marginBottom: 18,
+    lineHeight: 20,
+  },
+
+  requiredStar: {
+    color: COLORS.danger,
+    fontWeight: "700",
+  },
+
+  formErrorBanner: {
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 16,
+  },
+
+  formErrorText: {
+    color: "#B91C1C",
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 20,
   },
 
   loginContainer: {
-    marginTop: 30,
-    alignItems: "center",
-  },
-
-  dividerContainer: {
     flexDirection: "row",
+    justifyContent: "center",
     alignItems: "center",
-    width: "100%",
-    marginBottom: 20,
-  },
-
-  divider: {
-    flex: 1,
-    height: 1,
-    backgroundColor: "#E5E7EB",
-  },
-
-  dividerText: {
-    marginHorizontal: 12,
-    color: "#9CA3AF",
-    fontSize: 13,
-    fontWeight: "600",
+    marginTop: 16,
+    flexWrap: "wrap",
   },
 
   loginText: {
     fontSize: 15,
-    color: "#6B7280",
-    marginBottom: 12,
+    color: "#64748B",
   },
 
-  loginButton: {
-    width: "100%",
-    height: 52,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: "#001F3F",
-    backgroundColor: "#FFFFFF",
-    justifyContent: "center",
-    alignItems: "center",
-
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-
-  loginButtonText: {
-    color: "#001F3F",
-    fontSize: 16,
+  loginLink: {
+    fontSize: 15,
+    color: COLORS.buttonBlue,
     fontWeight: "700",
   },
 
   buttonContainer: {
-    padding: 18,
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 24,
+    backgroundColor: "#F1F5F9",
   },
 });
