@@ -31,10 +31,7 @@ export default function AppInput({
       <TextInput
         style={styles.input}
         value={value}
-        onChangeText={(text) => {
-          console.log(label, text); // Debug
-          onChangeText(text);
-        }}
+        onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor="#9CA3AF"
         secureTextEntry={secure}
