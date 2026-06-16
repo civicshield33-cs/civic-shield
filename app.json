@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "Civic Shield",
+    "slug": "civic-shield",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "civic-shield",
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "android": {
+      "package": "com.civicshield.app"
+    }
+  }
+}

@@ -1,0 +1,286 @@
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  StatusBar,
+  TouchableOpacity,
+  ScrollView,
+  Modal,
+  TextInput,
+  Alert,
+  Switch,
+} from "react-native";
+
+export default function CrimeReportScreen({ navigation }: any) {
+  const [modalVisible, setModalVisible] = useState(false);
+  const [formData, setFormData] = useState({
+    location: "",
+    description: "",
+    time: "",
+    shareMother: true,
+    shareBrother: true,
+  });
+
+  const openReportForm = () => {
+    setFormData({
+      location: "",
+      description: "",
+      time: "",
+      shareMother: true,
+      shareBrother: true,
+    });
+    setModalVisible(true);
+  };
+
+  const submitReport = () => {
+    if (!formData.description.trim()) {
+      Alert.alert("Error", "Please describe the incident");
+      return;
+    }
+
+    Alert.alert(
+      "Report Submitted",
+      "Your Crime report has been sent to the Command Center.",
+      [{ text: "OK", onPress: () => setModalVisible(false) }]
+    );
+  };
+
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#001F3F" />
+
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Text style={styles.backArrow}>←</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Crime Report</Text>
+      </View>
+
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+        <TouchableOpacity style={styles.reportButton} onPress={openReportForm}>
+          <Text style={styles.reportButtonText}>+ Create New Crime Report</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.sectionTitle}>Recent Crime Reports</Text>
+
+        {/* Sample Recent Reports */}
+        <View style={styles.recentCard}>
+          <Text style={styles.recentTitle}>Theft at Serrekunda Market</Text>
+          <Text style={styles.recentInfo}>2 hours ago • West Coast Region</Text>
+        </View>
+
+        <View style={styles.recentCard}>
+          <Text style={styles.recentTitle}>Assault near Banjul Highway</Text>
+          <Text style={styles.recentInfo}>Yesterday • Reported by Community</Text>
+        </View>
+      </ScrollView>
+
+      {/* Report Form Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Report Crime</Text>
+
+            {/* Photo Upload */}
+            <TouchableOpacity style={styles.uploadArea}>
+              <Text style={styles.uploadIcon}>📸</Text>
+              <Text style={styles.uploadText}>Upload Photo / Evidence</Text>
+            </TouchableOpacity>
+
+            <TextInput
+              style={styles.input}
+              placeholder="Incident Location"
+              value={formData.location}
+              onChangeText={(text) => setFormData({ ...formData, location: text })}
+            />
+
+            <TextInput
+              style={styles.input}
+              placeholder="Date & Time of Incident"
+              value={formData.time}
+              onChangeText={(text) => setFormData({ ...formData, time: text })}
+            />
+
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              placeholder="Describe the crime in detail..."
+              value={formData.description}
+              onChangeText={(text) => setFormData({ ...formData, description: text })}
+              multiline
+              numberOfLines={5}
+            />
+
+            <Text style={styles.shareTitle}>Share With</Text>
+            <View style={styles.shareRow}>
+              <Text style={styles.shareLabel}>Mother</Text>
+              <Switch
+                value={formData.shareMother}
+                onValueChange={(val) => setFormData({ ...formData, shareMother: val })}
+              />
+            </View>
+            <View style={styles.shareRow}>
+              <Text style={styles.shareLabel}>Brother</Text>
+              <Switch
+                value={formData.shareBrother}
+                onValueChange={(val) => setFormData({ ...formData, shareBrother: val })}
+              />
+            </View>
+
+            <TouchableOpacity style={styles.publishButton} onPress={submitReport}>
+              <Text style={styles.publishButtonText}>Submit Crime Report</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={() => setModalVisible(false)}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#F8FAFC" },
+  header: {
+    backgroundColor: "#001F3F",
+    paddingTop: 50,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  backButton: { paddingRight: 15 },
+  backArrow: { fontSize: 28, color: "#FFFFFF", fontWeight: "bold" },
+  headerTitle: { fontSize: 22, fontWeight: "600", color: "#FFFFFF" },
+
+  scrollView: { flex: 1 },
+  scrollContent: { padding: 20 },
+
+  reportButton: {
+    backgroundColor: "#001F3F",
+    paddingVertical: 18,
+    borderRadius: 16,
+    alignItems: "center",
+    marginBottom: 24,
+  },
+  reportButtonText: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "700",
+  },
+
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#1F2937",
+    marginBottom: 12,
+  },
+
+  recentCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    padding: 18,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  recentTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#1F2937",
+  },
+  recentInfo: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginTop: 4,
+  },
+
+  /* Modal */
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    backgroundColor: "white",
+    borderRadius: 20,
+    width: "90%",
+    padding: 24,
+    maxHeight: "85%",
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#001F3F",
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  uploadArea: {
+    borderWidth: 2,
+    borderColor: "#E5E7EB",
+    borderStyle: "dashed",
+    borderRadius: 16,
+    height: 110,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  uploadIcon: { fontSize: 40, marginBottom: 8 },
+  uploadText: { fontSize: 16, color: "#6B7280" },
+
+  input: {
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 16,
+    marginBottom: 14,
+  },
+  textArea: { height: 130, textAlignVertical: "top" },
+
+  shareTitle: { fontSize: 17, fontWeight: "600", marginTop: 10, marginBottom: 12 },
+  shareRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 10,
+  },
+  shareLabel: { fontSize: 16, color: "#1F2937" },
+
+  publishButton: {
+    backgroundColor: "#EF4444",
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    marginTop: 20,
+  },
+  publishButtonText: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  cancelButton: {
+    paddingVertical: 14,
+    alignItems: "center",
+    marginTop: 8,
+  },
+  cancelButtonText: { color: "#6B7280", fontSize: 16 },
+});
