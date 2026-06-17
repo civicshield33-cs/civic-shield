@@ -5,7 +5,9 @@ import {
   TextInput,
   StyleSheet,
   KeyboardTypeOptions,
+  TouchableOpacity,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
 import { COLORS } from "../theme/colors";
 
@@ -35,6 +37,7 @@ export default function AppInput({
   hint,
 }: Props) {
   const [focused, setFocused] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const hasError = Boolean(error);
 
   return (
@@ -45,22 +48,41 @@ export default function AppInput({
         {optional ? <Text style={styles.optional}>Optional</Text> : null}
       </View>
 
-      <TextInput
-        style={[
-          styles.input,
-          focused && styles.inputFocused,
-          hasError && styles.inputError,
-        ]}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor="#94A3B8"
-        secureTextEntry={secure}
-        keyboardType={keyboardType}
-        autoCapitalize="none"
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-      />
+      <View style={styles.inputWrap}>
+        <TextInput
+          style={[
+            styles.input,
+            secure && styles.inputSecure,
+            focused && styles.inputFocused,
+            hasError && styles.inputError,
+          ]}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor="#94A3B8"
+          secureTextEntry={secure && !showPassword}
+          keyboardType={keyboardType}
+          autoCapitalize="none"
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+        />
+
+        {secure ? (
+          <TouchableOpacity
+            style={styles.toggleButton}
+            onPress={() => setShowPassword((prev) => !prev)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={showPassword ? "Hide password" : "Show password"}
+          >
+            <Ionicons
+              name={showPassword ? "eye-off-outline" : "eye-outline"}
+              size={22}
+              color="#64748B"
+            />
+          </TouchableOpacity>
+        ) : null}
+      </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {!error && hint ? <Text style={styles.hint}>{hint}</Text> : null}
@@ -104,6 +126,10 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
 
+  inputWrap: {
+    position: "relative",
+  },
+
   input: {
     backgroundColor: "#FFFFFF",
     borderWidth: 1.5,
@@ -113,6 +139,19 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     fontSize: 16,
     color: COLORS.text,
+  },
+
+  inputSecure: {
+    paddingRight: 48,
+  },
+
+  toggleButton: {
+    position: "absolute",
+    right: 12,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
   },
 
   inputFocused: {
