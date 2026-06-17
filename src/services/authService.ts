@@ -6,11 +6,15 @@ import {
 } from "firebase/auth";
 
 import { getFirebaseAuth, getFirestoreDb, isFirebaseConfigured } from "./firebase";
-import { saveUserProfileToFirestore } from "./userProfileService";
+import {
+  loadUserProfileFromFirestore,
+  saveUserProfileToFirestore,
+} from "./userProfileService";
 import {
   AppUser,
   getStoredUser,
   login as localLogin,
+  normalizeEmail,
   normalizePhone,
   saveUser,
 } from "../utils/auth";
@@ -18,10 +22,6 @@ import {
 function phoneToEmail(phone: string) {
   const digits = normalizePhone(phone).replace(/\D/g, "");
   return `${digits}@civicshield.gm`;
-}
-
-function normalizeEmail(email: string) {
-  return email.trim().toLowerCase();
 }
 
 export function resolveAuthEmail(user: Pick<AppUser, "email" | "phone" | "authEmail">) {
@@ -45,6 +45,23 @@ function mapFirebaseError(error: any): string {
     return "Cloud database blocked the save. Deploy Firestore rules (see firestore.rules).";
   }
   return error?.message || "Could not create cloud account.";
+}
+
+function mapLoginFirebaseError(error: any): string {
+  const code = error?.code || "";
+  if (code === "auth/user-not-found") {
+    return "No account found with this email and password.";
+  }
+  if (code === "auth/wrong-password" || code === "auth/invalid-credential") {
+    return "Incorrect email or password.";
+  }
+  if (code === "auth/invalid-email") {
+    return "Enter a valid email address.";
+  }
+  if (code === "auth/too-many-requests") {
+    return "Too many attempts. Please try again later.";
+  }
+  return "Sign in failed. Check your email and password.";
 }
 
 export type RegisterResult =
@@ -128,43 +145,87 @@ export async function syncUserProfileAfterLogin(user: AppUser) {
   }
 }
 
-export async function loginAccount(phone: string, password: string) {
-  const localResult = await localLogin(phone, password);
-  if (!localResult.ok) return localResult;
+export async function loginAccount(identifier: string, password: string) {
+  const trimmed = identifier.trim();
+  const isEmail = trimmed.includes("@");
 
-  if (!isFirebaseConfigured()) {
-    return localResult;
-  }
+  if (isFirebaseConfigured()) {
+    const auth = getFirebaseAuth();
+    if (auth) {
+      const stored = await getStoredUser();
+      const candidates = isEmail
+        ? [normalizeEmail(trimmed)]
+        : [
+            stored ? resolveAuthEmail(stored) : "",
+            phoneToEmail(trimmed),
+          ].filter(Boolean);
 
-  const auth = getFirebaseAuth();
-  if (!auth) return localResult;
+      const authEmails = [...new Set(candidates)];
+      let lastError: any = null;
 
-  const candidates = [
-    resolveAuthEmail(localResult.user),
-    phoneToEmail(phone),
-  ].filter((email, index, list) => list.indexOf(email) === index);
+      for (const authEmail of authEmails) {
+        try {
+          await signInWithEmailAndPassword(auth, authEmail, password);
+          const uid = auth.currentUser?.uid;
+          if (!uid) {
+            return { ok: false as const, message: "Sign in failed. Please try again." };
+          }
 
-  for (const authEmail of candidates) {
-    try {
-      await signInWithEmailAndPassword(auth, authEmail, password);
+          const profile = await loadUserProfileFromFirestore(uid);
 
-      const updatedUser: AppUser = {
-        ...localResult.user,
-        authEmail,
-        uid: auth.currentUser?.uid || localResult.user.uid,
-      };
+          const user: AppUser = profile
+            ? {
+                fullName: profile.fullName,
+                phone: profile.phone,
+                email: profile.email,
+                nationalId: profile.nationalId,
+                password,
+                createdAt: profile.createdAt,
+                uid,
+                authEmail: profile.authEmail || authEmail,
+              }
+            : stored
+              ? {
+                  ...stored,
+                  uid,
+                  authEmail,
+                }
+              : {
+                  fullName: auth.currentUser?.displayName || "User",
+                  phone: isEmail ? "" : trimmed,
+                  email: isEmail ? normalizeEmail(trimmed) : authEmail,
+                  nationalId: "",
+                  password,
+                  createdAt: new Date().toISOString(),
+                  uid,
+                  authEmail,
+                };
 
-      await saveUser(updatedUser);
-      await syncUserProfileAfterLogin(updatedUser);
+          await saveUser(user);
+          await syncUserProfileAfterLogin(user);
 
-      return { ok: true as const, user: updatedUser };
-    } catch {
-      // try next candidate
+          return { ok: true as const, user };
+        } catch (error: any) {
+          lastError = error;
+          const code = error?.code || "";
+          if (
+            code === "auth/wrong-password" ||
+            code === "auth/invalid-credential"
+          ) {
+            return { ok: false as const, message: mapLoginFirebaseError(error) };
+          }
+        }
+      }
+
+      if (lastError?.code === "auth/user-not-found" && isEmail) {
+        return { ok: false as const, message: mapLoginFirebaseError(lastError) };
+      }
+
+      await signOut(auth).catch(() => undefined);
     }
   }
 
-  await signOut(auth).catch(() => undefined);
-  return localResult;
+  return localLogin(trimmed, password);
 }
 
 export async function getCurrentUserId() {

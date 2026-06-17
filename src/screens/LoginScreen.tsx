@@ -17,15 +17,17 @@ import { showAlert } from "../utils/alert";
 import { COLORS } from "../theme/colors";
 
 type FieldErrors = {
-  phone?: string;
+  email?: string;
   password?: string;
 };
 
-function validateForm(phone: string, password: string): FieldErrors {
+function validateForm(email: string, password: string): FieldErrors {
   const errors: FieldErrors = {};
 
-  if (!phone.trim()) {
-    errors.phone = "Phone number is required.";
+  if (!email.trim()) {
+    errors.email = "Email address is required.";
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    errors.email = "Enter a valid email address.";
   }
 
   if (!password.trim()) {
@@ -36,7 +38,7 @@ function validateForm(phone: string, password: string): FieldErrors {
 }
 
 export default function LoginScreen({ navigation }: any) {
-  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -50,7 +52,7 @@ export default function LoginScreen({ navigation }: any) {
   };
 
   const handleLogin = async () => {
-    const errors = validateForm(phone, password);
+    const errors = validateForm(email, password);
     setFieldErrors(errors);
     setFormError("");
 
@@ -61,7 +63,7 @@ export default function LoginScreen({ navigation }: any) {
 
     try {
       setLoading(true);
-      const result = await loginAccount(phone, password);
+      const result = await loginAccount(email, password);
 
       if (!result.ok) {
         setFormError(result.message);
@@ -119,16 +121,16 @@ export default function LoginScreen({ navigation }: any) {
             ) : null}
 
             <AppInput
-              label="Phone Number"
-              placeholder="+220 7907926"
-              keyboardType="phone-pad"
-              value={phone}
+              label="Email Address"
+              placeholder="you@example.com"
+              keyboardType="email-address"
+              value={email}
               onChangeText={(text) => {
-                setPhone(text);
-                clearFieldError("phone");
+                setEmail(text);
+                clearFieldError("email");
               }}
               required
-              error={fieldErrors.phone}
+              error={fieldErrors.email}
             />
 
             <AppInput
