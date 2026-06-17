@@ -89,7 +89,7 @@ export default function LoginScreen({ navigation }: any) {
         </TouchableOpacity>
 
         <View style={styles.headerTextWrap}>
-          <Text style={styles.headerTitle}>Welcome back</Text>
+          <Text style={styles.headerTitle}>Login</Text>
           <Text style={styles.headerSubtitle}>
             Sign in to continue to Civic Shield
           </Text>
@@ -106,7 +106,7 @@ export default function LoginScreen({ navigation }: any) {
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Sign in</Text>
+            <Text style={styles.cardTitle}>Your details</Text>
             <Text style={styles.requiredLegend}>
               Fields marked with <Text style={styles.requiredStar}>*</Text> are
               required
@@ -144,25 +144,21 @@ export default function LoginScreen({ navigation }: any) {
               error={fieldErrors.password}
             />
           </View>
-
-          <View style={styles.registerContainer}>
-            <Text style={styles.registerText}>Don't have an account?</Text>
-
-            <TouchableOpacity
-              style={styles.registerButton}
-              onPress={() => navigation.navigate("Register")}
-            >
-              <Text style={styles.registerButtonText}>Create Account</Text>
-            </TouchableOpacity>
-          </View>
         </ScrollView>
 
         <View style={styles.buttonContainer}>
           <PrimaryButton
-            title={loading ? "Signing In..." : "Login"}
+            title={loading ? "Signing in..." : "Login"}
             onPress={handleLogin}
             disabled={loading}
           />
+
+          <View style={styles.registerContainer}>
+            <Text style={styles.registerText}>Don't have an account? </Text>
+            <TouchableOpacity onPress={() => navigation.navigate("Register")}>
+              <Text style={styles.registerLink}>Create Account</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </View>
@@ -274,9 +270,11 @@ const styles = StyleSheet.create({
   },
 
   registerContainer: {
-    marginTop: 24,
+    flexDirection: "row",
+    justifyContent: "center",
     alignItems: "center",
-    gap: 12,
+    marginTop: 16,
+    flexWrap: "wrap",
   },
 
   registerText: {
@@ -284,20 +282,9 @@ const styles = StyleSheet.create({
     color: "#64748B",
   },
 
-  registerButton: {
-    width: "100%",
-    height: 52,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: COLORS.buttonBlue,
-    backgroundColor: "#FFFFFF",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  registerButtonText: {
+  registerLink: {
+    fontSize: 15,
     color: COLORS.buttonBlue,
-    fontSize: 16,
     fontWeight: "700",
   },
 
