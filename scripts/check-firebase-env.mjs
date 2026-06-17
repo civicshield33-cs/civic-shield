@@ -19,6 +19,16 @@ function loadDotEnv() {
   }
 }
 
+function hasBundledFirebaseConfig() {
+  const configPath = path.join(process.cwd(), "src/config/firebase.public.ts");
+  if (!fs.existsSync(configPath)) return false;
+
+  const content = fs.readFileSync(configPath, "utf8");
+  const hasApiKey = /apiKey:\s*["'][^"']+["']/.test(content);
+  const hasProjectId = /projectId:\s*["'][^"']+["']/.test(content);
+  return hasApiKey && hasProjectId;
+}
+
 loadDotEnv();
 
 const required = [
@@ -36,14 +46,22 @@ const missing = required.filter((key) => {
 });
 
 if (missing.length > 0) {
-  console.error(
-    "\n[Civic Shield] Firebase env vars missing for web build:\n" +
-      missing.map((key) => `  - ${key}`).join("\n") +
-      "\n\nAdd them in Cloudflare Pages → Settings → Environment variables (Production),\n" +
-      "then trigger a new deployment. See .env.example for names.\n"
-  );
+  if (hasBundledFirebaseConfig()) {
+    console.warn(
+      "\n[Civic Shield] Firebase env vars not set for this build.\n" +
+        "Using bundled config from src/config/firebase.public.ts.\n" +
+        "Optional: add EXPO_PUBLIC_FIREBASE_* in Cloudflare Pages to override.\n"
+    );
+  } else {
+    console.error(
+      "\n[Civic Shield] Firebase env vars missing for web build:\n" +
+        missing.map((key) => `  - ${key}`).join("\n") +
+        "\n\nAdd them in Cloudflare Pages → Settings → Environment variables (Production),\n" +
+        "or commit src/config/firebase.public.ts. See .env.example for names.\n"
+    );
 
-  if (process.env.CI || process.env.CF_PAGES === "1") {
-    process.exit(1);
+    if (process.env.CI || process.env.CF_PAGES === "1") {
+      process.exit(1);
+    }
   }
 }
