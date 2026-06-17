@@ -5,9 +5,13 @@ export const USER_KEY = "APP_USER";
 export type AppUser = {
   fullName: string;
   phone: string;
+  email: string;
   nationalId: string;
   password: string;
   createdAt: string;
+  uid?: string;
+  /** Email used for Firebase Auth sign-in */
+  authEmail?: string;
 };
 
 export function normalizePhone(phone: string) {

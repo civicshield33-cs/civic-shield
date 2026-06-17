@@ -6,12 +6,11 @@ import {
   StatusBar,
   TouchableOpacity,
   useWindowDimensions,
-  Alert,
-  Share,
   Vibration,
 } from "react-native";
 
 import * as Location from "expo-location";
+import { useSOSStore } from "../store/sosStore";
 
 export default function HoldSOSScreen({ navigation }: any) {
   const { width, height } = useWindowDimensions();
@@ -46,26 +45,10 @@ export default function HoldSOSScreen({ navigation }: any) {
   const triggerSOS = async () => {
     Vibration.vibrate([200, 200, 200]);
 
-    // 🔥 FIREBASE PLACEHOLDER
-    // await addDoc(collection(db, "sos_alerts"), {
-    //   location,
-    //   time: new Date().toISOString(),
-    // });
+    useSOSStore.getState().activate();
+    useSOSStore.getState().setCountdown(15);
 
-    const incidentId = Math.floor(Math.random() * 999999);
-    const link = `https://safewalk.app/sos/${incidentId}`;
-
-    Alert.alert(
-      "🚨 SOS ACTIVATED",
-      "Emergency services notified instantly."
-    );
-
-    await Share.share({
-      message:
-        `🚨 EMERGENCY SOS ALERT\n\nLive Tracking:\n${link}`,
-    });
-
-    setCountdown(3);
+    navigation.replace("Emergency");
   };
 
   // -----------------------------

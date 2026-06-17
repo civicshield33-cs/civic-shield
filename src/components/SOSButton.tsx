@@ -12,24 +12,14 @@ interface Props {
   onPress: () => void;
 }
 
-export default function SOSButton({
-  onPress,
-}: Props) {
+export default function SOSButton({ onPress }: Props) {
   return (
-    <TouchableOpacity
-      activeOpacity={0.85}
-      onPress={onPress}
-    >
+    <TouchableOpacity activeOpacity={0.9} onPress={onPress}>
       <View style={styles.outer}>
         <View style={styles.middle}>
           <View style={styles.inner}>
-            <Text style={styles.sos}>
-              SOS
-            </Text>
-
-            <Text style={styles.tap}>
-              Tap & Hold
-            </Text>
+            <Text style={styles.sos}>SOS</Text>
+            <Text style={styles.tap}>Tap & Hold</Text>
           </View>
         </View>
       </View>
@@ -39,42 +29,48 @@ export default function SOSButton({
 
 const styles = StyleSheet.create({
   outer: {
-    width: 149,
-    height: 149,
-    borderRadius: 125,
+    width: 168,
+    height: 168,
+    borderRadius: 84,
     backgroundColor: "#FEE2E2",
     justifyContent: "center",
     alignItems: "center",
   },
 
   middle: {
-    width: 135,
-    height: 135,
-    borderRadius: 105,
+    width: 152,
+    height: 152,
+    borderRadius: 76,
     backgroundColor: "#FCA5A5",
     justifyContent: "center",
     alignItems: "center",
   },
 
   inner: {
-    width: 120,
-    height: 120,
-    borderRadius: 85,
+    width: 136,
+    height: 136,
+    borderRadius: 68,
     backgroundColor: COLORS.danger,
     justifyContent: "center",
     alignItems: "center",
+    shadowColor: COLORS.danger,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
     elevation: 10,
   },
 
   sos: {
-    color: "white",
-    fontWeight: "bold",
-    fontSize: 27,
+    color: "#FFFFFF",
+    fontWeight: "800",
+    fontSize: 32,
+    letterSpacing: 1,
   },
 
   tap: {
-    color: "white",
-    marginTop: 10,
-    fontSize:11,
+    color: "rgba(255,255,255,0.92)",
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: "600",
   },
 });

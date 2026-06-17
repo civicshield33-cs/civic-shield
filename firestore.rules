@@ -1,0 +1,51 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // User profile + emergency contacts
+    match /users/{userId} {
+      allow read, create, update: if isOwner(userId);
+
+      match /contacts/{contactId} {
+        allow read, create, update, delete: if isOwner(userId);
+      }
+    }
+
+    // SOS incidents (public read for live tracking links)
+    match /sos_alerts/{alertId} {
+      allow read: if true;
+      allow create, update: if isSignedIn();
+    }
+
+    match /incident_reports/{reportId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+    }
+
+    match /community_alerts/{alertId} {
+      allow read: if true;
+      allow create, update: if isSignedIn();
+    }
+
+    match /missing_persons/{reportId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+    }
+
+    match /safe_walks/{walkId} {
+      allow read: if true;
+      allow create, update: if isSignedIn();
+    }
+
+    match /audit_log/{entryId} {
+      allow read, create: if isSignedIn();
+    }
+  }
+}

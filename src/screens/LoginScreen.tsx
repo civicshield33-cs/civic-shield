@@ -12,7 +12,7 @@ import {
 
 import AppInput from "../components/AppInput";
 import PrimaryButton from "../components/PrimaryButton";
-import { login } from "../utils/auth";
+import { loginAccount } from "../services/authService";
 import { showAlert } from "../utils/alert";
 import { COLORS } from "../theme/colors";
 
@@ -61,14 +61,14 @@ export default function LoginScreen({ navigation }: any) {
 
     try {
       setLoading(true);
-      const result = await login(phone, password);
+      const result = await loginAccount(phone, password);
 
       if (!result.ok) {
         setFormError(result.message);
         return;
       }
 
-      navigation.replace("Home");
+      navigation.replace("MainTabs");
     } catch {
       showAlert("Error", "Failed to sign in. Please try again.");
     } finally {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -10,78 +10,63 @@ import {
 
 import MapView, { Marker } from "react-native-maps";
 import AlertCard from "../components/AlertCard";
+import { subscribeCommunityAlerts } from "../services/incidentService";
+import { CommunityAlert } from "../types/emergency";
 
-const initialAlerts = [
-  {
-    id: 1,
-    emoji: "🔥",
-    title: "Fire Incident",
-    location: "Brikama",
-    time: "15 mins ago",
-    severity: "high",
-  },
-  {
-    id: 2,
-    emoji: "🚗",
-    title: "Traffic Accident",
-    location: "Westfield",
-    time: "5 mins ago",
-    severity: "medium",
-  },
-  {
-    id: 3,
-    emoji: "🚔",
-    title: "Crime Alert",
-    location: "Serrekunda",
-    time: "25 mins ago",
-    severity: "critical",
-  },
-  {
-    id: 4,
-    emoji: "🌊",
-    title: "Flood Warning",
-    location: "Banjul",
-    time: "1 hour ago",
-    severity: "high",
-  },
-];
+function alertEmoji(type: CommunityAlert["type"]) {
+  switch (type) {
+    case "fire":
+      return "🔥";
+    case "accident":
+      return "🚗";
+    case "crime":
+      return "🚔";
+    case "flood":
+      return "🌊";
+    default:
+      return "🚨";
+  }
+}
+
+function timeAgo(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins} min${mins === 1 ? "" : "s"} ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
 
 export default function CommunityAlertsScreen({ navigation }: any) {
-  const [alerts, setAlerts] = useState(initialAlerts);
+  const [alerts, setAlerts] = useState<CommunityAlert[]>([]);
   const [activeTab, setActiveTab] = useState("All");
 
-  // 🔥 Fake real-time updates (replace with Firebase later)
   useEffect(() => {
-    const interval = setInterval(() => {
-      setAlerts((prev) => {
-        const updated = [...prev];
-        if (Math.random() > 0.7) {
-          updated.unshift({
-            id: Date.now(),
-            emoji: "🚨",
-            title: "New Emergency Reported",
-            location: "Unknown",
-            time: "Just now",
-            severity: "critical",
-          });
-        }
-        return updated.slice(0, 8);
-      });
-    }, 7000);
-
-    return () => clearInterval(interval);
+    return subscribeCommunityAlerts(setAlerts);
   }, []);
 
-  const triggerSOS = () => {
-    alert("🚨 SOS SENT TO EMERGENCY NETWORK (Firebase hook point)");
-    // 🔥 Firebase: push SOS event here
-  };
+  const filteredAlerts = useMemo(() => {
+    if (activeTab === "Nearby") {
+      return alerts.filter((a) =>
+        ["Banjul", "Kanifing", "Serrekunda", "Westfield"].some((city) =>
+          a.location.toLowerCase().includes(city.toLowerCase())
+        )
+      );
+    }
+    if (activeTab === "Following") {
+      return alerts.filter((a) => a.severity === "critical" || a.severity === "high");
+    }
+    return alerts;
+  }, [activeTab, alerts]);
+
+  const latestMarker = filteredAlerts[0];
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#001F3F" />
 
-      {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={styles.backArrow}>←</Text>
@@ -89,12 +74,11 @@ export default function CommunityAlertsScreen({ navigation }: any) {
 
         <Text style={styles.headerTitle}>Community Alerts</Text>
 
-        <TouchableOpacity onPress={triggerSOS}>
+        <TouchableOpacity onPress={() => navigation.navigate("HoldSOS")}>
           <Text style={styles.sosBtn}>🚨</Text>
         </TouchableOpacity>
       </View>
 
-      {/* LIVE MAP PREVIEW */}
       <View style={styles.mapContainer}>
         <MapView
           style={styles.map}
@@ -110,12 +94,14 @@ export default function CommunityAlertsScreen({ navigation }: any) {
             coordinate={{ latitude: 13.4549, longitude: -16.579 }}
             title="Banjul"
           />
-
-          <Marker
-            coordinate={{ latitude: 13.438, longitude: -16.678 }}
-            title="Active Incident"
-            pinColor="red"
-          />
+          {latestMarker ? (
+            <Marker
+              coordinate={{ latitude: 13.438, longitude: -16.678 }}
+              title={latestMarker.title}
+              description={latestMarker.location}
+              pinColor="red"
+            />
+          ) : null}
         </MapView>
 
         <View style={styles.liveBadge}>
@@ -123,7 +109,6 @@ export default function CommunityAlertsScreen({ navigation }: any) {
         </View>
       </View>
 
-      {/* TABS */}
       <View style={styles.tabContainer}>
         {["All", "Nearby", "Following"].map((tab) => (
           <TouchableOpacity
@@ -142,37 +127,40 @@ export default function CommunityAlertsScreen({ navigation }: any) {
         ))}
       </View>
 
-      {/* ALERT LIST */}
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {alerts.map((alert) => (
-          <View key={alert.id} style={styles.alertWrapper}>
-            <AlertCard
-              emoji={alert.emoji}
-              title={alert.title}
-              location={alert.location}
-              time={alert.time}
-            />
+        {filteredAlerts.length === 0 ? (
+          <Text style={styles.emptyText}>No alerts right now. Stay safe.</Text>
+        ) : (
+          filteredAlerts.map((alert) => (
+            <View key={alert.id} style={styles.alertWrapper}>
+              <AlertCard
+                emoji={alertEmoji(alert.type)}
+                title={alert.title}
+                location={alert.location}
+                time={timeAgo(alert.createdAt)}
+              />
 
-            <View
-              style={[
-                styles.severity,
-                alert.severity === "critical" && {
-                  backgroundColor: "#EF4444",
-                },
-                alert.severity === "high" && {
-                  backgroundColor: "#F59E0B",
-                },
-                alert.severity === "medium" && {
-                  backgroundColor: "#3B82F6",
-                },
-              ]}
-            >
-              <Text style={styles.severityText}>
-                {alert.severity.toUpperCase()}
-              </Text>
+              <View
+                style={[
+                  styles.severity,
+                  alert.severity === "critical" && {
+                    backgroundColor: "#EF4444",
+                  },
+                  alert.severity === "high" && {
+                    backgroundColor: "#F59E0B",
+                  },
+                  alert.severity === "medium" && {
+                    backgroundColor: "#3B82F6",
+                  },
+                ]}
+              >
+                <Text style={styles.severityText}>
+                  {alert.severity.toUpperCase()}
+                </Text>
+              </View>
             </View>
-          </View>
-        ))}
+          ))
+        )}
       </ScrollView>
     </View>
   );
@@ -269,6 +257,13 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 15,
     paddingBottom: 40,
+  },
+
+  emptyText: {
+    textAlign: "center",
+    color: "#64748B",
+    fontSize: 15,
+    marginTop: 24,
   },
 
   alertWrapper: {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -11,76 +11,129 @@ import {
 } from "react-native";
 
 import StatusRow from "../components/StatusRow";
-import * as Location from "expo-location";
 import { useSOSStore } from "../store/sosStore";
+import { getStoredUser } from "../utils/auth";
+import { getCurrentUserId } from "../services/authService";
+import { getLocalContacts } from "../services/contactService";
+import {
+  createSosIncident,
+  getCurrentLocation,
+  markContactsNotified,
+  notifyEmergencyContacts,
+} from "../services/sosService";
+import {
+  startEmergencyRecording,
+  stopEmergencyRecording,
+} from "../services/evidenceService";
+import { getTrackingUrl } from "../config/app";
+import { showAlert } from "../utils/alert";
 
-export default function EmergencyScreen({ navigation }: any) {
-  const { countdown, setCountdown } = useSOSStore();
+const STATUS_STEPS = [
+  "Sending alerts...",
+  "Recording audio...",
+  "GPS tracking active...",
+  "Alerting emergency contacts...",
+  "Connecting to responders...",
+];
 
-  const [location, setLocation] = useState<any>(null);
-  const [incidentLink, setIncidentLink] = useState("");
+export default function EmergencyScreen({ navigation, route }: any) {
+  const {
+    countdown,
+    setCountdown,
+    activate,
+    deactivate,
+    setIncidentId,
+    setContactsNotified,
+  } = useSOSStore();
 
-  const [status, setStatus] = useState([
-    "Initializing emergency protocol...",
-    "Capturing GPS location...",
-    "Sending distress signal...",
-    "Alerting nearby responders...",
-    "Police units notified...",
-  ]);
+  const silent =
+    route?.params?.silent ||
+    route?.params?.silentMode ||
+    false;
 
+  const [location, setLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [trackingUrl, setTrackingUrl] = useState("");
   const [currentStep, setCurrentStep] = useState(0);
+  const [ready, setReady] = useState(false);
+  const startedRef = useRef(false);
 
-  // -----------------------------
-  // LOCATION CAPTURE
-  // -----------------------------
   useEffect(() => {
-    (async () => {
-      const { status } =
-        await Location.requestForegroundPermissionsAsync();
+    if (startedRef.current) return;
+    startedRef.current = true;
 
-      if (status !== "granted") return;
+    const boot = async () => {
+      if (!silent) {
+        Vibration.vibrate([200, 200, 300]);
+      }
 
-      const loc = await Location.getCurrentPositionAsync({});
-      setLocation({
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
+      const [user, point, userId] = await Promise.all([
+        getStoredUser(),
+        getCurrentLocation(),
+        getCurrentUserId(),
+      ]);
+
+      if (point) {
+        setLocation({
+          latitude: point.latitude,
+          longitude: point.longitude,
+        });
+      }
+
+      const incident = await createSosIncident({
+        userId,
+        userName: user?.fullName || "Civic Shield User",
+        userPhone: user?.phone || "",
+        location: point,
       });
-    })();
-  }, []);
 
-  // -----------------------------
-  // STATUS PROGRESSION (REAL-TIME FEEL)
-  // -----------------------------
+      setIncidentId(incident.id);
+      activate(incident.id);
+      setTrackingUrl(getTrackingUrl(incident.id));
+      setCurrentStep(1);
+
+      await startEmergencyRecording();
+      setCurrentStep(2);
+
+      const contacts = await getLocalContacts();
+      if (contacts.length > 0) {
+        await notifyEmergencyContacts(
+          contacts,
+          incident.id,
+          user?.fullName || "A Civic Shield user"
+        );
+        await markContactsNotified(incident.id);
+        setContactsNotified(true);
+      }
+      setCurrentStep(4);
+      setReady(true);
+    };
+
+    boot().catch(() => {
+      showAlert("Error", "Could not fully start emergency mode.");
+      setReady(true);
+    });
+  }, [activate, setContactsNotified, setIncidentId]);
+
   useEffect(() => {
-    if (currentStep < status.length - 1) {
+    if (!ready) return;
+    if (currentStep < STATUS_STEPS.length - 1) {
       const timer = setTimeout(() => {
-        setCurrentStep((p) => p + 1);
+        setCurrentStep((step) => step + 1);
       }, 1200);
-
       return () => clearTimeout(timer);
     }
-  }, [currentStep]);
+  }, [currentStep, ready]);
 
-  // -----------------------------
-  // SHARE INCIDENT LINK
-  // -----------------------------
-  const shareIncident = async () => {
-    const id = Math.floor(Math.random() * 999999);
-    const link = `https://safewalk.app/emergency/${id}`;
-
-    setIncidentLink(link);
-
-    await Share.share({
-      message: `🚨 EMERGENCY ALERT LIVE\n\nTrack incident:\n${link}`,
-    });
-  };
-
-  // -----------------------------
-  // COUNTDOWN NAVIGATION
-  // -----------------------------
   useEffect(() => {
     if (countdown === 0) {
-      navigation.replace("Tracking");
+      const { incidentId } = useSOSStore.getState();
+      if (incidentId) {
+        stopEmergencyRecording(incidentId).catch(() => undefined);
+      }
+      navigation.replace("Tracking", { incidentId });
       return;
     }
 
@@ -89,118 +142,86 @@ export default function EmergencyScreen({ navigation }: any) {
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [countdown]);
+  }, [countdown, navigation, setCountdown]);
 
-  // -----------------------------
-  // INITIAL ALERT FEEDBACK
-  // -----------------------------
-  useEffect(() => {
-    Vibration.vibrate([200, 200, 300]);
-  }, []);
+  const shareIncident = async () => {
+    if (!trackingUrl) return;
+    await Share.share({
+      message: `🚨 EMERGENCY ALERT LIVE\n\nTrack incident:\n${trackingUrl}`,
+    });
+  };
+
+  const cancelEmergency = async () => {
+    const { incidentId } = useSOSStore.getState();
+    if (incidentId) {
+      const { cancelSosIncident } = await import("../services/sosService");
+      await stopEmergencyRecording(incidentId).catch(() => undefined);
+      await cancelSosIncident(incidentId);
+    }
+    deactivate();
+    setCountdown(15);
+    navigation.navigate("MainTabs");
+  };
+
+  const bgColor = silent ? "#1E293B" : "#B91C1C";
+  const headerTitle = silent ? "Safety check active" : "EMERGENCY ACTIVATED";
+  const headerSubtitle = silent
+    ? "Alerts sent discreetly. Help is on the way."
+    : "Help is being dispatched immediately";
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#B91C1C" />
+    <View style={[styles.container, { backgroundColor: bgColor }]}>
+      <StatusBar barStyle="light-content" backgroundColor={bgColor} />
 
-      {/* HEADER */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={cancelEmergency}>
           <Text style={styles.backArrow}>←</Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* ICON */}
-        <Text style={styles.bellIcon}>🚨</Text>
+        {!silent ? <Text style={styles.bellIcon}>🚨</Text> : null}
+        <Text style={styles.title}>{headerTitle}</Text>
+        <Text style={styles.subtitle}>{headerSubtitle}</Text>
 
-        {/* TITLE */}
-        <Text style={styles.title}>EMERGENCY ACTIVATED</Text>
-
-        <Text style={styles.subtitle}>
-          Help is being dispatched immediately
-        </Text>
-
-        {/* LIVE STATUS PANEL */}
         <View style={styles.statusContainer}>
-          {status.map((item, index) => (
-            <StatusRow
-              key={index}
-              text={item}
-              active={index <= currentStep}
-            />
+          {STATUS_STEPS.map((item, index) => (
+            <StatusRow key={item} text={item} active={index <= currentStep} />
           ))}
         </View>
 
-        {/* LOCATION DISPLAY */}
-        {location && (
+        {location ? (
           <View style={styles.locationBox}>
-            <Text style={styles.locationTitle}>
-              📍 Live Location Captured
-            </Text>
+            <Text style={styles.locationTitle}>📍 Live Location Captured</Text>
             <Text style={styles.locationText}>
-              {location.latitude.toFixed(5)},{" "}
-              {location.longitude.toFixed(5)}
+              {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}
             </Text>
           </View>
-        )}
+        ) : null}
 
-        {/* SHARE BUTTON */}
-        <TouchableOpacity
-          style={styles.shareBtn}
-          onPress={shareIncident}
-        >
-          <Text style={styles.shareText}>
-            🔗 Share Live Incident
-          </Text>
+        <TouchableOpacity style={styles.shareBtn} onPress={shareIncident}>
+          <Text style={styles.shareText}>🔗 Share Live Incident</Text>
         </TouchableOpacity>
       </ScrollView>
 
-      {/* CANCEL / STATUS BUTTON */}
-      <TouchableOpacity
-        style={styles.cancelButton}
-        onPress={() => navigation.goBack()}
-      >
-        <Text style={styles.cancelText}>
-          Cancel ({countdown}s)
-        </Text>
+      <TouchableOpacity style={styles.cancelButton} onPress={cancelEmergency}>
+        <Text style={styles.cancelText}>Cancel ({countdown}s)</Text>
       </TouchableOpacity>
     </View>
   );
 }
 
-// -----------------------------
-// STYLES
-// -----------------------------
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#B91C1C",
-  },
-
-  header: {
-    paddingTop: 50,
-    paddingHorizontal: 20,
-  },
-
-  backArrow: {
-    fontSize: 28,
-    color: "#FFFFFF",
-    fontWeight: "bold",
-  },
-
+  container: { flex: 1, backgroundColor: "#B91C1C" },
+  header: { paddingTop: 50, paddingHorizontal: 20 },
+  backArrow: { fontSize: 28, color: "#FFFFFF", fontWeight: "bold" },
   scrollContent: {
     alignItems: "center",
     paddingHorizontal: 25,
     paddingTop: 20,
     paddingBottom: 40,
   },
-
-  bellIcon: {
-    fontSize: 90,
-    marginTop: 20,
-    marginBottom: 10,
-  },
-
+  bellIcon: { fontSize: 90, marginTop: 20, marginBottom: 10 },
   title: {
     color: "#FFFFFF",
     fontSize: 30,
@@ -208,7 +229,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 8,
   },
-
   subtitle: {
     color: "#FFFFFF",
     fontSize: 16,
@@ -216,7 +236,6 @@ const styles = StyleSheet.create({
     opacity: 0.9,
     marginBottom: 30,
   },
-
   statusContainer: {
     width: "100%",
     backgroundColor: "rgba(255,255,255,0.18)",
@@ -224,7 +243,6 @@ const styles = StyleSheet.create({
     padding: 20,
     marginBottom: 25,
   },
-
   locationBox: {
     backgroundColor: "rgba(255,255,255,0.15)",
     padding: 15,
@@ -232,18 +250,8 @@ const styles = StyleSheet.create({
     width: "100%",
     marginBottom: 20,
   },
-
-  locationTitle: {
-    color: "#fff",
-    fontWeight: "700",
-    marginBottom: 5,
-  },
-
-  locationText: {
-    color: "#fff",
-    opacity: 0.9,
-  },
-
+  locationTitle: { color: "#fff", fontWeight: "700", marginBottom: 5 },
+  locationText: { color: "#fff", opacity: 0.9 },
   shareBtn: {
     backgroundColor: "#2563EB",
     padding: 15,
@@ -251,12 +259,7 @@ const styles = StyleSheet.create({
     width: "100%",
     alignItems: "center",
   },
-
-  shareText: {
-    color: "#fff",
-    fontWeight: "700",
-  },
-
+  shareText: { color: "#fff", fontWeight: "700" },
   cancelButton: {
     backgroundColor: "rgba(255,255,255,0.15)",
     marginHorizontal: 25,
@@ -266,7 +269,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#FFFFFF",
   },
-
   cancelText: {
     color: "#FFFFFF",
     fontSize: 18,

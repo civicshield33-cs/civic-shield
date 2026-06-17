@@ -14,8 +14,9 @@
     "expo-image-picker": "~17.0.11",
     "expo-location": "~19.0.8",
     "expo-notifications": "~0.32.17",
+    "expo-sensors": "^56.0.6",
     "expo-sharing": "~14.0.8",
-    "firebase": "^12.14.0",
+    "firebase": "^12.15.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
@@ -36,6 +37,7 @@
   "devDependencies": {
     "@types/react": "~19.1.10",
     "babel-preset-expo": "^56.0.15",
+    "firebase-tools": "^15.20.0",
     "typescript": "~5.9.2"
   },
   "name": "civic-shield",
@@ -46,6 +48,7 @@
     "android": "node node_modules/expo/bin/cli run:android",
     "ios": "node node_modules/expo/bin/cli run:ios",
     "web": "node node_modules/expo/bin/cli start --web",
-    "build:web": "node node_modules/expo/bin/cli export -p web"
+    "build:web": "node node_modules/expo/bin/cli export -p web",
+    "deploy:rules": "firebase deploy --only firestore:rules --project civic-shield-1cfc4"
   }
 }

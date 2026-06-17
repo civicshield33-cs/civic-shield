@@ -10,12 +10,15 @@ import {
   Alert,
   Modal,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import * as Contacts from "expo-contacts";
 import { useFocusEffect } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 
-// ✅ GLOBAL STORE
 import { useContactStore } from "../store/contactStore";
+import { COLORS } from "../theme/colors";
 
 type Contact = {
   id: string;
@@ -23,41 +26,45 @@ type Contact = {
   phone: string;
 };
 
+function getInitials(name: string) {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase() || "?";
+}
+
+function avatarColor(name: string) {
+  const colors = ["#DBEAFE", "#DCFCE7", "#FEF3C7", "#FCE7F3", "#EDE9FE"];
+  const index = name.charCodeAt(0) % colors.length;
+  return colors[index];
+}
+
 export default function ContactsScreen({ navigation }: any) {
-  // =========================
-  // GLOBAL STATE (IMPORTANT)
-  // =========================
   const contacts = useContactStore((state) => state.contacts);
   const loadContacts = useContactStore((state) => state.loadContacts);
   const addContactStore = useContactStore((state) => state.addContact);
   const removeContactStore = useContactStore((state) => state.removeContact);
 
-  // =========================
-  // LOCAL UI STATE
-  // =========================
   const [phoneContacts, setPhoneContacts] = useState<Contact[]>([]);
-  const [modalVisible, setModalVisible] = useState(false);
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const [manualVisible, setManualVisible] = useState(false);
+  const [addMenuVisible, setAddMenuVisible] = useState(false);
   const [search, setSearch] = useState("");
+  const [manualName, setManualName] = useState("");
+  const [manualPhone, setManualPhone] = useState("");
 
-  // =========================
-  // INIT LOAD
-  // =========================
   useFocusEffect(
     useCallback(() => {
       loadContacts();
-      loadPhoneContacts();
-    }, [])
+    }, [loadContacts])
   );
 
-  // =========================
-  // LOAD PHONE CONTACTS
-  // =========================
   const loadPhoneContacts = async () => {
     const { status } = await Contacts.requestPermissionsAsync();
-
     if (status !== "granted") {
-      Alert.alert("Permission required", "Allow contacts access");
-      return;
+      Alert.alert("Permission required", "Allow contacts access to import from your phone.");
+      return false;
     }
 
     const { data } = await Contacts.getContactsAsync({
@@ -68,143 +75,261 @@ export default function ContactsScreen({ navigation }: any) {
       .filter((c) => c.name && c.phoneNumbers?.length)
       .map((c) => ({
         id: c.id,
-        name: c.name,
+        name: c.name!,
         phone: c.phoneNumbers?.[0]?.number || "",
       }));
 
     setPhoneContacts(formatted);
+    return true;
   };
 
-  // =========================
-  // ADD CONTACT (GLOBAL)
-  // =========================
+  const openPhonePicker = async () => {
+    setAddMenuVisible(false);
+    const ok = await loadPhoneContacts();
+    if (ok) {
+      setSearch("");
+      setPickerVisible(true);
+    }
+  };
+
   const addContact = async (contact: Contact) => {
-    const exists = contacts.some((c) => c.id === contact.id);
+    const exists = contacts.some(
+      (c) => c.phone.replace(/\D/g, "") === contact.phone.replace(/\D/g, "")
+    );
 
     if (exists) {
-      Alert.alert("Already added", "This contact is already saved");
+      Alert.alert("Already added", "This contact is already in your emergency list.");
       return;
     }
 
     await addContactStore(contact);
   };
 
-  // =========================
-  // DELETE CONTACT (GLOBAL)
-  // =========================
-  const deleteContact = (id: string) => {
-    Alert.alert("Remove Contact", "Delete this emergency contact?", [
+  const addManualContact = async () => {
+    const name = manualName.trim();
+    const phone = manualPhone.trim();
+
+    if (!name) {
+      Alert.alert("Name required", "Enter a contact name.");
+      return;
+    }
+    if (!phone || phone.replace(/\D/g, "").length < 7) {
+      Alert.alert("Phone required", "Enter a valid phone number.");
+      return;
+    }
+
+    await addContact({
+      id: `manual-${Date.now()}`,
+      name,
+      phone,
+    });
+
+    setManualName("");
+    setManualPhone("");
+    setManualVisible(false);
+  };
+
+  const showContactMenu = (contact: Contact) => {
+    Alert.alert(contact.name, contact.phone, [
       { text: "Cancel", style: "cancel" },
       {
-        text: "Delete",
+        text: "Call",
+        onPress: () => callContact(contact.phone),
+      },
+      {
+        text: "Remove",
         style: "destructive",
-        onPress: async () => {
-          await removeContactStore(id);
-        },
+        onPress: () => deleteContact(contact.id),
       },
     ]);
   };
 
-  // =========================
-  // CALL CONTACT
-  // =========================
+  const deleteContact = (id: string) => {
+    Alert.alert("Remove contact", "Remove this emergency contact?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: () => removeContactStore(id),
+      },
+    ]);
+  };
+
   const callContact = (phone: string) => {
     Linking.openURL(`tel:${phone}`).catch(() =>
       Alert.alert("Error", "Cannot open dialer")
     );
   };
 
-  // =========================
-  // FILTER SEARCH
-  // =========================
   const filteredPhoneContacts = phoneContacts.filter((c) =>
     c.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  // =========================
-  // RENDER CONTACT
-  // =========================
-  const renderItem = ({ item }: { item: Contact }) => (
+  const renderContact = ({ item }: { item: Contact }) => (
     <View style={styles.contactCard}>
-      <View style={{ flex: 1 }}>
+      <View
+        style={[styles.avatar, { backgroundColor: avatarColor(item.name) }]}
+      >
+        <Text style={styles.avatarText}>{getInitials(item.name)}</Text>
+      </View>
+
+      <View style={styles.contactInfo}>
         <Text style={styles.contactName}>{item.name}</Text>
         <Text style={styles.contactPhone}>{item.phone}</Text>
       </View>
 
-      <TouchableOpacity onPress={() => callContact(item.phone)}>
-        <Text style={styles.callIcon}>📞</Text>
+      <TouchableOpacity
+        style={styles.iconBtn}
+        onPress={() => callContact(item.phone)}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Ionicons name="call-outline" size={22} color={COLORS.buttonBlue} />
       </TouchableOpacity>
 
-      <TouchableOpacity onPress={() => deleteContact(item.id)}>
-        <Text style={styles.deleteIcon}>🗑️</Text>
+      <TouchableOpacity
+        style={styles.iconBtn}
+        onPress={() => showContactMenu(item)}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Ionicons name="ellipsis-vertical" size={20} color="#64748B" />
       </TouchableOpacity>
     </View>
   );
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#001F3F" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* HEADER */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backArrow}>←</Text>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => navigation.goBack()}
+        >
+          <Ionicons name="chevron-back" size={26} color={COLORS.text} />
         </TouchableOpacity>
-
         <Text style={styles.headerTitle}>Trusted Contacts</Text>
+        <View style={styles.headerSpacer} />
       </View>
 
-      {/* CONTENT */}
       <View style={styles.content}>
         <Text style={styles.subtitle}>
-          These contacts will receive SOS alerts instantly.
+          These contacts will be notified during emergencies.
         </Text>
 
-        {/* ADD BUTTON */}
         <TouchableOpacity
           style={styles.addButton}
-          onPress={() => setModalVisible(true)}
+          onPress={() => setAddMenuVisible(true)}
         >
-          <Text style={styles.addText}>+ Add from Phone Contacts</Text>
+          <Ionicons name="add" size={20} color={COLORS.buttonBlue} />
+          <Text style={styles.addButtonText}>Add Contact</Text>
         </TouchableOpacity>
 
-        {/* LIST */}
         {contacts.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={{ fontSize: 40 }}>📭</Text>
+            <Ionicons name="people-outline" size={48} color="#CBD5E1" />
+            <Text style={styles.emptyTitle}>No contacts yet</Text>
             <Text style={styles.emptyText}>
-              No emergency contacts added yet
+              Add family or friends who should receive your SOS alerts.
             </Text>
           </View>
         ) : (
           <FlatList
             data={contacts}
             keyExtractor={(item) => item.id}
-            renderItem={renderItem}
+            renderItem={renderContact}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.listContent}
           />
         )}
       </View>
 
-      {/* CONTINUE */}
-      <View style={styles.buttonContainer}>
+      <View style={styles.footer}>
         <TouchableOpacity
           disabled={contacts.length === 0}
           style={[
             styles.continueButton,
-            contacts.length === 0 && { backgroundColor: "#aaa" },
+            contacts.length === 0 && styles.continueDisabled,
           ]}
-          onPress={() => navigation.navigate("Home")}
+          onPress={() => navigation.navigate("MainTabs")}
         >
           <Text style={styles.continueButtonText}>Continue</Text>
         </TouchableOpacity>
       </View>
 
-      {/* =========================
-          MODAL CONTACT PICKER
-      ========================= */}
-      <Modal visible={modalVisible} animationType="slide">
-        <View style={styles.modalContainer}>
-          <Text style={styles.modalTitle}>Select Contact</Text>
+      {/* Add contact options */}
+      <Modal visible={addMenuVisible} transparent animationType="fade">
+        <TouchableOpacity
+          style={styles.overlay}
+          activeOpacity={1}
+          onPress={() => setAddMenuVisible(false)}
+        >
+          <View style={styles.addMenu}>
+            <Text style={styles.addMenuTitle}>Add emergency contact</Text>
+            <TouchableOpacity
+              style={styles.addMenuItem}
+              onPress={() => {
+                setAddMenuVisible(false);
+                setManualVisible(true);
+              }}
+            >
+              <Ionicons name="create-outline" size={22} color={COLORS.buttonBlue} />
+              <Text style={styles.addMenuItemText}>Enter name & phone</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.addMenuItem} onPress={openPhonePicker}>
+              <Ionicons name="phone-portrait-outline" size={22} color={COLORS.buttonBlue} />
+              <Text style={styles.addMenuItemText}>Import from phone</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.addMenuCancel}
+              onPress={() => setAddMenuVisible(false)}
+            >
+              <Text style={styles.addMenuCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Manual entry */}
+      <Modal visible={manualVisible} animationType="slide" transparent>
+        <KeyboardAvoidingView
+          style={styles.overlay}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <View style={styles.manualSheet}>
+            <Text style={styles.manualTitle}>New contact</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Name (e.g. Mother)"
+              value={manualName}
+              onChangeText={setManualName}
+              autoCapitalize="words"
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Phone (e.g. +220 700 1234)"
+              value={manualPhone}
+              onChangeText={setManualPhone}
+              keyboardType="phone-pad"
+            />
+            <TouchableOpacity style={styles.saveBtn} onPress={addManualContact}>
+              <Text style={styles.saveBtnText}>Save contact</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setManualVisible(false)}>
+              <Text style={styles.cancelLink}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Phone contact picker */}
+      <Modal visible={pickerVisible} animationType="slide">
+        <View style={styles.pickerContainer}>
+          <View style={styles.pickerHeader}>
+            <Text style={styles.pickerTitle}>Select from phone</Text>
+            <TouchableOpacity onPress={() => setPickerVisible(false)}>
+              <Ionicons name="close" size={28} color={COLORS.text} />
+            </TouchableOpacity>
+          </View>
 
           <TextInput
             placeholder="Search contacts..."
@@ -218,143 +343,319 @@ export default function ContactsScreen({ navigation }: any) {
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => {
               const exists = contacts.some((c) => c.id === item.id);
-
               return (
-                <View style={styles.modalCard}>
+                <View style={styles.pickerRow}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.contactName}>{item.name}</Text>
                     <Text style={styles.contactPhone}>{item.phone}</Text>
                   </View>
-
                   <TouchableOpacity
-                    style={[
-                      styles.addBtn,
-                      exists && { backgroundColor: "#999" },
-                    ]}
+                    style={[styles.pickerAddBtn, exists && styles.pickerAddDisabled]}
                     disabled={exists}
-                    onPress={() => addContact(item)}
+                    onPress={async () => {
+                      await addContact(item);
+                    }}
                   >
-                    <Text style={styles.addText}>
+                    <Text style={styles.pickerAddText}>
                       {exists ? "Added" : "Add"}
                     </Text>
                   </TouchableOpacity>
                 </View>
               );
             }}
+            ListEmptyComponent={
+              <Text style={styles.emptyPicker}>No contacts found on this device.</Text>
+            }
           />
-
-          <TouchableOpacity
-            style={styles.closeBtn}
-            onPress={() => setModalVisible(false)}
-          >
-            <Text style={{ color: "#fff" }}>Close</Text>
-          </TouchableOpacity>
         </View>
       </Modal>
     </View>
   );
 }
 
-/* =========================
-STYLES
-========================= */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F8FAFC" },
 
   header: {
-    backgroundColor: "#001F3F",
-    paddingTop: 70,
-    paddingBottom: 15,
-    paddingHorizontal: 20,
+    backgroundColor: "#FFFFFF",
+    paddingTop: Platform.OS === "web" ? 20 : 56,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
-  },
-
-  backArrow: { fontSize: 28, color: "#fff", marginRight: 10 },
-
-  headerTitle: { color: "#fff", fontSize: 20, fontWeight: "700" },
-
-  content: { flex: 1, padding: 20 },
-
-  subtitle: { color: "#6B7280", marginBottom: 12 },
-
-  addButton: {
-    backgroundColor: "#001F3F",
-    padding: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 15,
-  },
-
-  addText: { color: "#fff", fontWeight: "700" },
-
-  contactCard: {
-    flexDirection: "row",
-    backgroundColor: "#fff",
-    padding: 14,
-    borderRadius: 12,
-    marginBottom: 10,
-    alignItems: "center",
-  },
-
-  contactName: { fontSize: 16, fontWeight: "600" },
-
-  contactPhone: { fontSize: 13, color: "#6B7280" },
-
-  callIcon: { fontSize: 22, color: "#16A34A", marginHorizontal: 8 },
-
-  deleteIcon: { fontSize: 22, color: "#DC2626" },
-
-  emptyState: { marginTop: 60, alignItems: "center" },
-
-  emptyText: { marginTop: 10, color: "#6B7280" },
-
-  buttonContainer: {
-    padding: 15,
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-    backgroundColor: "#fff",
-  },
-
-  continueButton: {
-    backgroundColor: "#001F3F",
-    padding: 16,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-
-  continueButtonText: { color: "#fff", fontWeight: "700" },
-
-  modalContainer: { flex: 1, padding: 20 },
-
-  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 10 },
-
-  search: {
-    backgroundColor: "#fff",
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 10,
-  },
-
-  modalCard: {
-    flexDirection: "row",
-    padding: 12,
     borderBottomWidth: 1,
-    borderColor: "#eee",
+    borderBottomColor: "#E2E8F0",
   },
 
-  addBtn: {
-    backgroundColor: "#28a745",
-    padding: 8,
-    borderRadius: 8,
+  backBtn: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
     justifyContent: "center",
   },
 
-  closeBtn: {
-    backgroundColor: "#001F3F",
-    padding: 14,
-    borderRadius: 10,
+  headerTitle: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: 18,
+    fontWeight: "700",
+    color: COLORS.text,
+  },
+
+  headerSpacer: { width: 40 },
+
+  content: { flex: 1, paddingHorizontal: 20, paddingTop: 20 },
+
+  subtitle: {
+    textAlign: "center",
+    color: "#64748B",
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 20,
+    paddingHorizontal: 12,
+  },
+
+  addButton: {
+    flexDirection: "row",
     alignItems: "center",
-    marginTop: 10,
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderColor: COLORS.buttonBlue,
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginBottom: 20,
+  },
+
+  addButtonText: {
+    color: COLORS.buttonBlue,
+    fontWeight: "700",
+    fontSize: 16,
+  },
+
+  listContent: { paddingBottom: 16 },
+
+  contactCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    padding: 14,
+    borderRadius: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 14,
+  },
+
+  avatarText: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: COLORS.buttonBlue,
+  },
+
+  contactInfo: { flex: 1 },
+
+  contactName: { fontSize: 16, fontWeight: "700", color: COLORS.text },
+
+  contactPhone: { fontSize: 14, color: "#64748B", marginTop: 2 },
+
+  iconBtn: {
+    padding: 8,
+    marginLeft: 4,
+  },
+
+  emptyState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingBottom: 80,
+    paddingHorizontal: 24,
+  },
+
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: COLORS.text,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+
+  emptyText: {
+    textAlign: "center",
+    color: "#64748B",
+    fontSize: 15,
+    lineHeight: 22,
+  },
+
+  footer: {
+    padding: 20,
+    paddingBottom: Platform.OS === "ios" ? 32 : 20,
+    backgroundColor: "#FFFFFF",
+    borderTopWidth: 1,
+    borderTopColor: "#E2E8F0",
+  },
+
+  continueButton: {
+    backgroundColor: COLORS.buttonBlue,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+
+  continueDisabled: { backgroundColor: "#94A3B8" },
+
+  continueButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+    fontSize: 16,
+  },
+
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+
+  addMenu: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 24,
+    paddingBottom: 32,
+  },
+
+  addMenuTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: COLORS.text,
+    marginBottom: 16,
+    textAlign: "center",
+  },
+
+  addMenuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+  },
+
+  addMenuItemText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: COLORS.text,
+  },
+
+  addMenuCancel: {
+    marginTop: 16,
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+
+  addMenuCancelText: { color: "#64748B", fontSize: 16, fontWeight: "600" },
+
+  manualSheet: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 24,
+    paddingBottom: 32,
+  },
+
+  manualTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 16,
+    color: COLORS.text,
+  },
+
+  input: {
+    borderWidth: 1.5,
+    borderColor: "#E2E8F0",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    marginBottom: 12,
+    backgroundColor: "#F8FAFC",
+  },
+
+  saveBtn: {
+    backgroundColor: COLORS.buttonBlue,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    marginTop: 8,
+  },
+
+  saveBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 16 },
+
+  cancelLink: {
+    textAlign: "center",
+    color: "#64748B",
+    marginTop: 16,
+    fontSize: 15,
+  },
+
+  pickerContainer: { flex: 1, backgroundColor: "#F8FAFC", paddingTop: 56 },
+
+  pickerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    marginBottom: 12,
+  },
+
+  pickerTitle: { fontSize: 20, fontWeight: "700", color: COLORS.text },
+
+  search: {
+    backgroundColor: "#FFFFFF",
+    marginHorizontal: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    marginBottom: 12,
+    fontSize: 16,
+  },
+
+  pickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E2E8F0",
+    backgroundColor: "#FFFFFF",
+  },
+
+  pickerAddBtn: {
+    backgroundColor: COLORS.buttonBlue,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+
+  pickerAddDisabled: { backgroundColor: "#94A3B8" },
+
+  pickerAddText: { color: "#FFFFFF", fontWeight: "700", fontSize: 14 },
+
+  emptyPicker: {
+    textAlign: "center",
+    color: "#64748B",
+    marginTop: 40,
+    paddingHorizontal: 24,
   },
 });

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -8,38 +8,44 @@ import {
   TouchableOpacity,
   Alert,
   Share,
+  TextInput,
 } from "react-native";
 
 import MapView, { Marker, Polyline } from "react-native-maps";
 import * as Location from "expo-location";
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
-type LatLng = {
-  latitude: number;
-  longitude: number;
-};
-
-type Contact = {
-  id: string;
-  name: string;
-  phone: string;
-};
-
-const STORAGE_KEY = "EMERGENCY_CONTACTS";
+import { useContactStore } from "../store/contactStore";
+import { useUserProfile } from "../hooks/useUserProfile";
+import { getCurrentUserId } from "../services/authService";
+import {
+  appendSafeWalkLocation,
+  buildSafeWalkShareMessage,
+  completeSafeWalk,
+  startSafeWalk,
+  triggerSafeWalkSos,
+} from "../services/safeWalkService";
+import { GeoPoint } from "../types/emergency";
 
 export default function SafeWalkScreen({ navigation }: any) {
   const mapRef = useRef<MapView>(null);
+  const watchRef = useRef<Location.LocationSubscription | null>(null);
 
-  const [contacts, setContacts] = useState<Contact[]>([]);
+  const contacts = useContactStore((state) => state.contacts);
+  const loadContacts = useContactStore((state) => state.loadContacts);
+  const { user } = useUserProfile();
+
+  const [journeyId, setJourneyId] = useState<string | null>(null);
   const [tracking, setTracking] = useState(false);
+  const [destination, setDestination] = useState("");
 
-  const [userLocation, setUserLocation] = useState<LatLng>({
+  const [userLocation, setUserLocation] = useState({
     latitude: 13.4549,
     longitude: -16.579,
   });
 
-  const [path, setPath] = useState<LatLng[]>([]);
+  const [path, setPath] = useState<{ latitude: number; longitude: number }[]>(
+    []
+  );
 
   const [region, setRegion] = useState({
     latitude: 13.4549,
@@ -48,42 +54,20 @@ export default function SafeWalkScreen({ navigation }: any) {
     longitudeDelta: 0.01,
   });
 
-  // =========================
-  // LOAD CONTACTS (SYNCED)
-  // =========================
-  const loadContacts = async () => {
-    const saved = await AsyncStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      setContacts(JSON.parse(saved));
-    } else {
-      setContacts([]);
-    }
-  };
-
   useEffect(() => {
     loadContacts();
-  }, []);
+  }, [loadContacts]);
 
-  // refresh when screen comes back
-  useEffect(() => {
-    const interval = setInterval(loadContacts, 2000); // auto-sync
-    return () => clearInterval(interval);
-  }, []);
-
-  // =========================
-  // LOCATION INIT
-  // =========================
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert("Permission denied", "Location is required");
+        Alert.alert("Permission denied", "Location is required for Safe Walk");
         return;
       }
 
       const loc = await Location.getCurrentPositionAsync({});
       const { latitude, longitude } = loc.coords;
-
       const start = { latitude, longitude };
 
       setUserLocation(start);
@@ -96,21 +80,45 @@ export default function SafeWalkScreen({ navigation }: any) {
     })();
   }, []);
 
-  // =========================
-  // LIVE TRACKING
-  // =========================
   useEffect(() => {
-    let interval: any;
+    return () => {
+      watchRef.current?.remove();
+    };
+  }, []);
 
-    if (tracking) {
-      interval = setInterval(async () => {
-        const loc = await Location.getCurrentPositionAsync({});
+  const toGeoPoint = (latitude: number, longitude: number): GeoPoint => ({
+    latitude,
+    longitude,
+    timestamp: new Date().toISOString(),
+  });
+
+  const startJourney = async () => {
+    if (tracking) return;
+
+    const userId = await getCurrentUserId();
+    const journey = await startSafeWalk({
+      userId,
+      userName: user?.fullName || "Civic Shield User",
+      destination: destination.trim() || undefined,
+      startLocation: toGeoPoint(userLocation.latitude, userLocation.longitude),
+    });
+
+    setJourneyId(journey.id);
+    setTracking(true);
+    setPath([{ latitude: userLocation.latitude, longitude: userLocation.longitude }]);
+
+    watchRef.current = await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.High,
+        timeInterval: 4000,
+        distanceInterval: 8,
+      },
+      async (loc) => {
         const { latitude, longitude } = loc.coords;
+        const point = { latitude, longitude };
 
-        const newPoint = { latitude, longitude };
-
-        setUserLocation(newPoint);
-        setPath((prev) => [...prev, newPoint]);
+        setUserLocation(point);
+        setPath((prev) => [...prev, point]);
 
         mapRef.current?.animateToRegion({
           latitude,
@@ -118,68 +126,62 @@ export default function SafeWalkScreen({ navigation }: any) {
           latitudeDelta: 0.01,
           longitudeDelta: 0.01,
         });
-      }, 3000);
+
+        if (journey.id) {
+          await appendSafeWalkLocation(journey.id, toGeoPoint(latitude, longitude));
+        }
+      }
+    );
+  };
+
+  const endJourney = async () => {
+    watchRef.current?.remove();
+    watchRef.current = null;
+    setTracking(false);
+
+    if (journeyId) {
+      await completeSafeWalk(journeyId);
     }
 
-    return () => clearInterval(interval);
-  }, [tracking]);
+    Alert.alert("Journey complete", "You have arrived safely.");
+    setJourneyId(null);
+  };
 
-  // =========================
-  // SOS FUNCTION (REAL CONTACTS)
-  // =========================
-  const triggerSOS = () => {
+  const shareLiveLocation = async () => {
+    if (!journeyId) {
+      Alert.alert("Start journey first", "Tap Start Journey to share your live location.");
+      return;
+    }
+
+    const message = buildSafeWalkShareMessage(
+      journeyId,
+      user?.fullName || "Civic Shield User"
+    );
+
+    await Share.share({ message });
+  };
+
+  const triggerSOS = async () => {
     if (contacts.length === 0) {
       Alert.alert("No Contacts", "Please add emergency contacts first");
       return;
     }
 
+    if (journeyId) {
+      await triggerSafeWalkSos(journeyId);
+    }
+
     Alert.alert(
-      "🚨 SOS ACTIVATED",
-      `Alert sent to ${contacts.length} contacts`
+      "SOS ACTIVATED",
+      `Alert sent. ${contacts.length} contact${contacts.length === 1 ? "" : "s"} notified.`
     );
-
-    contacts.forEach((c) => {
-      console.log("SOS sent to:", c.name, c.phone);
-      // 🔥 HERE: SMS / WhatsApp / Firebase trigger
-    });
+    navigation.navigate("HoldSOS");
   };
-
-  // =========================
-  // SHARE LOCATION
-  // =========================
-  const shareLiveLocation = async () => {
-    const link = `https://safewalk.app/live?user=12345`;
-
-    await Share.share({
-      message: `🚶‍♂️ Follow my live location: ${link}`,
-    });
-  };
-
-  // =========================
-  // FAKE EMERGENCY UNITS
-  // =========================
-  const vehicles = [
-    {
-      id: "police1",
-      type: "🚓 Police",
-      latitude: userLocation.latitude + 0.002,
-      longitude: userLocation.longitude + 0.002,
-      color: "blue",
-    },
-    {
-      id: "ambulance1",
-      type: "🚑 Ambulance",
-      latitude: userLocation.latitude - 0.002,
-      longitude: userLocation.longitude - 0.003,
-      color: "red",
-    },
-  ];
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#001F3F" />
 
-      {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={styles.backArrow}>←</Text>
@@ -193,7 +195,6 @@ export default function SafeWalkScreen({ navigation }: any) {
       </View>
 
       <ScrollView>
-        {/* MAP */}
         <View style={styles.mapContainer}>
           <MapView
             ref={mapRef}
@@ -201,85 +202,68 @@ export default function SafeWalkScreen({ navigation }: any) {
             region={region}
             showsUserLocation
             showsCompass
-            showsTraffic
             mapType="standard"
           >
-            <Marker coordinate={userLocation} title="You 🚶‍♂️" />
+            <Marker coordinate={userLocation} title="You" />
 
-            <Marker
-              coordinate={{ latitude: 13.4425, longitude: -16.678 }}
-              title="Home"
-            />
-
-            {path.length > 1 && (
+            {path.length > 1 ? (
               <Polyline
                 coordinates={path}
-                strokeColor="#00FF88"
+                strokeColor="#10B981"
                 strokeWidth={4}
               />
-            )}
-
-            {vehicles.map((v) => (
-              <Marker
-                key={v.id}
-                coordinate={{
-                  latitude: v.latitude,
-                  longitude: v.longitude,
-                }}
-                title={v.type}
-              >
-                <View
-                  style={[
-                    styles.vehicleMarker,
-                    { backgroundColor: v.color },
-                  ]}
-                >
-                  <Text style={styles.vehicleText}>
-                    {v.type.split(" ")[0]}
-                  </Text>
-                </View>
-              </Marker>
-            ))}
+            ) : null}
           </MapView>
         </View>
 
-        {/* INFO */}
         <View style={styles.infoBox}>
-          <Text style={styles.infoTitle}>Live Tracking Active</Text>
+          <Text style={styles.infoTitle}>
+            {tracking ? "Live Tracking Active" : "Ready to walk"}
+          </Text>
           <Text style={styles.infoSub}>
-            Syncing with {contacts.length} emergency contacts
+            {tracking
+              ? `Sharing with ${contacts.length} emergency contact${contacts.length === 1 ? "" : "s"}`
+              : "Start a journey and share your live route with trusted contacts"}
           </Text>
         </View>
 
-        {/* CONTACTS (REAL DATA) */}
+        <View style={styles.destinationBox}>
+          <Text style={styles.sectionTitle}>Destination (optional)</Text>
+          <TextInput
+            style={styles.destinationInput}
+            placeholder="e.g. Home, Serrekunda"
+            value={destination}
+            onChangeText={setDestination}
+            editable={!tracking}
+          />
+        </View>
+
         <Text style={styles.sectionTitle}>Emergency Contacts</Text>
 
         {contacts.length === 0 ? (
           <View style={styles.contactCard}>
-            <Text style={styles.contactText}>
-              No contacts added yet
-            </Text>
+            <Text style={styles.contactText}>No contacts added yet</Text>
           </View>
         ) : (
           contacts.map((c) => (
             <View key={c.id} style={styles.contactCard}>
-              <Text style={styles.contactText}>👤 {c.name}</Text>
+              <Text style={styles.contactText}>{c.name}</Text>
               <Text style={styles.phoneText}>{c.phone}</Text>
             </View>
           ))
         )}
       </ScrollView>
 
-      {/* BOTTOM ACTIONS */}
       <View style={styles.bottomBar}>
-        <TouchableOpacity
-          style={styles.startBtn}
-          onPress={() => setTracking(true)}
-        >
-          <Text style={styles.startText}>
-            {tracking ? "Tracking Live 🟢" : "Start Journey"}
-          </Text>
-        </TouchableOpacity>
+        {!tracking ? (
+          <TouchableOpacity style={styles.startBtn} onPress={startJourney}>
+            <Text style={styles.startText}>Start Journey</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={styles.endBtn} onPress={endJourney}>
+            <Text style={styles.startText}>I've Arrived Safely</Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity style={styles.sosBtn} onPress={triggerSOS}>
           <Text style={styles.sosText}>SOS</Text>
@@ -289,9 +273,6 @@ export default function SafeWalkScreen({ navigation }: any) {
   );
 }
 
-/* =========================
-STYLES
-========================= */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F8FAFC" },
 
@@ -318,26 +299,31 @@ const styles = StyleSheet.create({
 
   map: { width: "100%", height: "100%" },
 
-  vehicleMarker: {
-    padding: 6,
-    borderRadius: 20,
-  },
-
-  vehicleText: {
-    color: "#fff",
-    fontSize: 10,
-    fontWeight: "bold",
-  },
-
   infoBox: {
     margin: 15,
+    marginTop: 0,
     padding: 15,
     backgroundColor: "#fff",
     borderRadius: 14,
   },
 
   infoTitle: { fontSize: 16, fontWeight: "700" },
-  infoSub: { color: "#6B7280", marginTop: 4 },
+  infoSub: { color: "#6B7280", marginTop: 4, lineHeight: 20 },
+
+  destinationBox: {
+    marginHorizontal: 15,
+    marginBottom: 8,
+  },
+
+  destinationInput: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    padding: 14,
+    fontSize: 15,
+    marginTop: 8,
+  },
 
   sectionTitle: {
     marginLeft: 15,
@@ -363,6 +349,14 @@ const styles = StyleSheet.create({
 
   startBtn: {
     backgroundColor: "#10B981",
+    padding: 16,
+    borderRadius: 14,
+    alignItems: "center",
+    marginBottom: 10,
+  },
+
+  endBtn: {
+    backgroundColor: "#0B2A6F",
     padding: 16,
     borderRadius: 14,
     alignItems: "center",

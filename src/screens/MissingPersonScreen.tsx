@@ -9,22 +9,25 @@ import {
   Image,
   Alert,
   ActivityIndicator,
-  useWindowDimensions,
 } from "react-native";
-import * as ImagePicker from 'expo-image-picker';
+import * as ImagePicker from "expo-image-picker";
 import AppInput from "../components/AppInput";
 import PrimaryButton from "../components/PrimaryButton";
+import { submitMissingPersonReport } from "../services/incidentService";
+import { getCurrentUserId } from "../services/authService";
 
 export default function MissingPersonScreen({ navigation }: any) {
-  const { height } = useWindowDimensions();
-  
+
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [policeNotified, setPoliceNotified] = useState(false);
+  const [fullName, setFullName] = useState("");
+  const [age, setAge] = useState("");
+  const [location, setLocation] = useState("");
+  const [lastSeen, setLastSeen] = useState("");
 
-  // Image Picker
   const pickImage = async () => {
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const permissionResult =
+      await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permissionResult.granted) {
       Alert.alert("Permission Required", "We need access to your photos.");
       return;
@@ -42,44 +45,63 @@ export default function MissingPersonScreen({ navigation }: any) {
     }
   };
 
-  // Police Notification Logic
   const publishAlert = async () => {
+    if (!fullName.trim()) {
+      Alert.alert("Missing info", "Please enter the person's full name.");
+      return;
+    }
+    if (!location.trim()) {
+      Alert.alert("Missing info", "Please enter the last seen location.");
+      return;
+    }
+    if (!lastSeen.trim()) {
+      Alert.alert("Missing info", "Please enter when they were last seen.");
+      return;
+    }
+
     setIsSubmitting(true);
 
-    // Simulate API call to notify police
-    await new Promise(resolve => setTimeout(resolve, 1800));
+    try {
+      const userId = await getCurrentUserId();
+      await submitMissingPersonReport({
+        userId,
+        fullName: fullName.trim(),
+        age: age.trim() || undefined,
+        lastSeen: lastSeen.trim(),
+        location: location.trim(),
+        photoUri: selectedImage,
+      });
 
-    setPoliceNotified(true);
-
-    Alert.alert(
-      "✅ Alert Published",
-      "Your missing person report has been submitted successfully.\n\nPolice have been notified and an alert has been broadcasted.",
-      [
-        { 
-          text: "OK", 
-          onPress: () => {
-            setIsSubmitting(false);
-            navigation.navigate("Tracking"); // or "Home"
-          } 
-        }
-      ]
-    );
+      Alert.alert(
+        "Alert Published",
+        "Your missing person report has been submitted. Police and the community will be notified.",
+        [{ text: "OK", onPress: () => navigation.goBack() }]
+      );
+    } catch {
+      Alert.alert("Error", "Could not publish alert. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#001F3F" />
 
-      {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
           <Text style={styles.backArrow}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Missing Person</Text>
       </View>
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-        {/* Photo Upload */}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+      >
         <TouchableOpacity style={styles.photoBox} onPress={pickImage}>
           {selectedImage ? (
             <Image source={{ uri: selectedImage }} style={styles.previewImage} />
@@ -89,17 +111,39 @@ export default function MissingPersonScreen({ navigation }: any) {
                 <Text style={styles.plusIcon}>+</Text>
               </View>
               <Text style={styles.photoText}>Upload Photo</Text>
-              <Text style={styles.photoSubtext}>(Tap to add photo of missing person)</Text>
+              <Text style={styles.photoSubtext}>
+                (Tap to add photo of missing person)
+              </Text>
             </>
           )}
         </TouchableOpacity>
 
-        <AppInput label="Full Name" placeholder="Enter full name" />
-        <AppInput label="Age" placeholder="Enter age" keyboardType="numeric" />
-        <AppInput label="Last Seen Location" placeholder="Enter last seen location" />
-        <AppInput label="Last Seen Date & Time" placeholder="Select date & time" />
+        <AppInput
+          label="Full Name"
+          placeholder="Enter full name"
+          value={fullName}
+          onChangeText={setFullName}
+        />
+        <AppInput
+          label="Age"
+          placeholder="Enter age"
+          keyboardType="numeric"
+          value={age}
+          onChangeText={setAge}
+        />
+        <AppInput
+          label="Last Seen Location"
+          placeholder="Enter last seen location"
+          value={location}
+          onChangeText={setLocation}
+        />
+        <AppInput
+          label="Last Seen Date & Time"
+          placeholder="e.g. Today 3:30 PM"
+          value={lastSeen}
+          onChangeText={setLastSeen}
+        />
 
-        {/* Police Notification Status */}
         <View style={styles.policeStatus}>
           <Text style={styles.statusIcon}>🟢</Text>
           <Text style={styles.statusText}>
@@ -108,7 +152,6 @@ export default function MissingPersonScreen({ navigation }: any) {
         </View>
       </ScrollView>
 
-      {/* Bottom Buttons */}
       <View style={styles.buttonContainer}>
         <PrimaryButton
           title={isSubmitting ? "Publishing..." : "Publish Alert"}
@@ -140,12 +183,12 @@ const styles = StyleSheet.create({
   },
   backButton: { paddingRight: 15 },
   backArrow: { fontSize: 28, color: "#FFFFFF", fontWeight: "bold" },
-  headerTitle: { 
-    fontSize: 22, 
-    fontWeight: "600", 
-    color: "#FFFFFF", 
-    flex: 1, 
-    textAlign: "center" 
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: "600",
+    color: "#FFFFFF",
+    flex: 1,
+    textAlign: "center",
   },
   scrollView: { flex: 1 },
   scrollContent: { padding: 20, paddingBottom: 100 },
@@ -174,9 +217,19 @@ const styles = StyleSheet.create({
     borderColor: "#3B82F6",
   },
   plusIcon: { fontSize: 42, color: "#3B82F6", fontWeight: "bold" },
-  photoText: { fontSize: 19, fontWeight: "700", color: "#1F2937", marginBottom: 6 },
-  photoSubtext: { fontSize: 14.5, color: "#6B7280", textAlign: "center", paddingHorizontal: 30 },
-  
+  photoText: {
+    fontSize: 19,
+    fontWeight: "700",
+    color: "#1F2937",
+    marginBottom: 6,
+  },
+  photoSubtext: {
+    fontSize: 14.5,
+    color: "#6B7280",
+    textAlign: "center",
+    paddingHorizontal: 30,
+  },
+
   policeStatus: {
     flexDirection: "row",
     alignItems: "center",

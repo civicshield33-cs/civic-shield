@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import MapView, { Marker } from "react-native-maps";
 import {
   View,
@@ -9,31 +9,55 @@ import {
   StatusBar,
 } from "react-native";
 
+import { subscribeCommandIncidents, getResponseUnits } from "../services/commandCenterService";
+import { CommandIncident, ResponseUnit } from "../types/operator";
+
+function severityColor(severity: string) {
+  switch (severity) {
+    case "critical":
+      return "#EF4444";
+    case "high":
+      return "#F59E0B";
+    case "medium":
+      return "#EAB308";
+    default:
+      return "#10B981";
+  }
+}
+
 export default function LiveMapScreen({ navigation }: any) {
   const [mapType, setMapType] = useState<"hybrid" | "satellite">("hybrid");
+  const [incidents, setIncidents] = useState<CommandIncident[]>([]);
+  const [units, setUnits] = useState<ResponseUnit[]>([]);
+
+  useEffect(() => {
+    const unsub = subscribeCommandIncidents(setIncidents);
+    getResponseUnits().then(setUnits);
+    return unsub;
+  }, []);
+
+  const active = incidents.filter(
+    (i) =>
+      (i.status === "active" || i.status === "assigned") &&
+      i.latitude &&
+      i.longitude
+  );
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#001F3F" />
 
-      {/* HEADER */}
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
-        >
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Text style={styles.backArrow}>←</Text>
         </TouchableOpacity>
-
         <Text style={styles.headerTitle}>Live Map</Text>
-
         <View style={styles.liveBadge}>
           <Text style={styles.liveText}>LIVE</Text>
         </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* MAP */}
         <View style={styles.mapContainer}>
           <MapView
             style={styles.map}
@@ -44,54 +68,43 @@ export default function LiveMapScreen({ navigation }: any) {
               latitudeDelta: 1.2,
               longitudeDelta: 1.2,
             }}
-            showsUserLocation
-            showsCompass
-            showsScale
-            showsTraffic
-            zoomEnabled
-            scrollEnabled
-            rotateEnabled
           >
-            {/* INCIDENT (MAIN FOCUS) */}
-            <Marker coordinate={{ latitude: 13.438, longitude: -16.678 }}>
-              <View style={styles.incidentMarker}>
-                <Text style={styles.incidentText}>🚨</Text>
-              </View>
-            </Marker>
+            {active.map((incident) => (
+              <Marker
+                key={`${incident.source}-${incident.id}`}
+                coordinate={{
+                  latitude: incident.latitude!,
+                  longitude: incident.longitude!,
+                }}
+                title={incident.title}
+                description={incident.location}
+                pinColor={severityColor(incident.severity)}
+                onCalloutPress={() =>
+                  navigation.navigate("IncidentDetail", { incident })
+                }
+              />
+            ))}
 
-            {/* BANJUL */}
-            <Marker
-              coordinate={{ latitude: 13.4549, longitude: -16.579 }}
-              title="Banjul"
-              description="Capital City"
-            />
-
-            {/* AMBULANCE */}
-            <Marker
-              coordinate={{ latitude: 13.441, longitude: -16.654 }}
-              title="Ambulance Unit A-12"
-              description="Responding"
-              pinColor="#3B82F6"
-            />
-
-            {/* FIRE UNIT */}
-            <Marker
-              coordinate={{ latitude: 13.482, longitude: -16.631 }}
-              title="Fire Unit F-04"
-              description="Available"
-              pinColor="#F59E0B"
-            />
-
-            {/* POLICE */}
-            <Marker
-              coordinate={{ latitude: 13.463, longitude: -16.605 }}
-              title="Police Unit P-08"
-              description="Patrolling"
-              pinColor="#10B981"
-            />
+            {units.map((unit) => (
+              <Marker
+                key={unit.id}
+                coordinate={{
+                  latitude: unit.latitude,
+                  longitude: unit.longitude,
+                }}
+                title={unit.name}
+                description={unit.status}
+                pinColor={
+                  unit.type === "police"
+                    ? "#10B981"
+                    : unit.type === "ambulance"
+                      ? "#3B82F6"
+                      : "#F59E0B"
+                }
+              />
+            ))}
           </MapView>
 
-          {/* MAP TYPE SWITCH */}
           <View style={styles.mapSwitch}>
             <TouchableOpacity onPress={() => setMapType("hybrid")}>
               <Text
@@ -103,7 +116,6 @@ export default function LiveMapScreen({ navigation }: any) {
                 Hybrid
               </Text>
             </TouchableOpacity>
-
             <TouchableOpacity onPress={() => setMapType("satellite")}>
               <Text
                 style={[
@@ -115,93 +127,26 @@ export default function LiveMapScreen({ navigation }: any) {
               </Text>
             </TouchableOpacity>
           </View>
-
-          {/* OVERLAY */}
-          <View style={styles.mapOverlay}>
-            <Text style={styles.mapTitle}>
-              🇬🇲 The Gambia - Real Time Tracking
-            </Text>
-            <Text style={styles.mapSubtitle}>
-              All active incidents and emergency units shown live
-            </Text>
-          </View>
         </View>
 
-        {/* CONTROLS */}
-        <View style={styles.controls}>
-          <TouchableOpacity style={styles.controlButton}>
-            <Text style={styles.controlText}>📍 Center Map</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.controlButton}>
-            <Text style={styles.controlText}>🚨 Incidents</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.controlButton}>
-            <Text style={styles.controlText}>🚑 Units</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.controlButton}>
-            <Text style={styles.controlText}>🛰 Live Mode</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* STATS */}
-        <View style={styles.statsCard}>
-          <Text style={styles.statsTitle}>Live Overview</Text>
-
-          <View style={styles.statsRow}>
-            <Text style={styles.statsLabel}>Active Incidents</Text>
-            <Text style={styles.statsValue}>12</Text>
-          </View>
-
-          <View style={styles.statsRow}>
-            <Text style={styles.statsLabel}>Critical</Text>
-            <Text style={[styles.statsValue, { color: "#EF4444" }]}>
-              4
-            </Text>
-          </View>
-
-          <View style={styles.statsRow}>
-            <Text style={styles.statsLabel}>Police Units</Text>
-            <Text style={styles.statsValue}>8</Text>
-          </View>
-
-          <View style={styles.statsRow}>
-            <Text style={styles.statsLabel}>Ambulances</Text>
-            <Text style={styles.statsValue}>5</Text>
-          </View>
-
-          <View style={styles.statsRow}>
-            <Text style={styles.statsLabel}>Fire Units</Text>
-            <Text style={styles.statsValue}>3</Text>
-          </View>
-        </View>
-
-        {/* LEGEND */}
         <View style={styles.legend}>
-          <Text style={styles.legendTitle}>Legend</Text>
-
-          <View style={styles.legendRow}>
-            <View style={[styles.legendDot, { backgroundColor: "#EF4444" }]} />
-            <Text style={styles.legendText}>Incident</Text>
-          </View>
-
-          <View style={styles.legendRow}>
-            <View style={[styles.legendDot, { backgroundColor: "#3B82F6" }]} />
-            <Text style={styles.legendText}>Ambulance</Text>
-          </View>
-
-          <View style={styles.legendRow}>
-            <View style={[styles.legendDot, { backgroundColor: "#F59E0B" }]} />
-            <Text style={styles.legendText}>Fire Unit</Text>
-          </View>
-
-          <View style={[styles.legendRow, { marginBottom: 0 }]}>
-            <View style={[styles.legendDot, { backgroundColor: "#10B981" }]} />
-            <Text style={styles.legendText}>Police</Text>
-          </View>
+          <Text style={styles.legendTitle}>Severity legend</Text>
+          {[
+            { label: "Critical", color: "#EF4444" },
+            { label: "High", color: "#F59E0B" },
+            { label: "Medium", color: "#EAB308" },
+            { label: "Low / units", color: "#10B981" },
+          ].map((item) => (
+            <View key={item.label} style={styles.legendRow}>
+              <View style={[styles.legendDot, { backgroundColor: item.color }]} />
+              <Text style={styles.legendText}>{item.label}</Text>
+            </View>
+          ))}
         </View>
+
+        <Text style={styles.count}>
+          {active.length} incident pin{active.length === 1 ? "" : "s"} • {units.length} units
+        </Text>
       </ScrollView>
     </View>
   );
@@ -209,7 +154,6 @@ export default function LiveMapScreen({ navigation }: any) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F8FAFC" },
-
   header: {
     backgroundColor: "#001F3F",
     paddingTop: 50,
@@ -218,45 +162,25 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-
   backButton: { paddingRight: 15 },
-
-  backArrow: {
-    fontSize: 28,
-    color: "#fff",
-    fontWeight: "bold",
-  },
-
-  headerTitle: {
-    flex: 1,
-    fontSize: 22,
-    fontWeight: "600",
-    color: "#fff",
-    textAlign: "center",
-  },
-
+  backArrow: { fontSize: 28, color: "#fff", fontWeight: "bold" },
+  headerTitle: { flex: 1, fontSize: 22, fontWeight: "600", color: "#fff", textAlign: "center" },
   liveBadge: {
     backgroundColor: "#EF4444",
-    paddingHorizontal: 14,
-    paddingVertical: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
     borderRadius: 20,
   },
-
-  liveText: {
-    color: "#fff",
-    fontWeight: "700",
-  },
-
+  liveText: { color: "#fff", fontWeight: "700", fontSize: 12 },
+  scrollContent: { paddingBottom: 40 },
   mapContainer: {
-    height: 520,
-    borderRadius: 20,
+    height: 480,
     margin: 15,
+    borderRadius: 20,
     overflow: "hidden",
     position: "relative",
   },
-
   map: { flex: 1 },
-
   mapSwitch: {
     position: "absolute",
     top: 10,
@@ -266,134 +190,19 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 6,
     gap: 10,
-    elevation: 5,
   },
-
-  switchText: {
-    fontWeight: "600",
-    color: "#6B7280",
-  },
-
-  activeSwitch: {
-    color: "#001F3F",
-  },
-
-  mapOverlay: {
-    position: "absolute",
-    bottom: 10,
-    left: 10,
-    right: 10,
-    backgroundColor: "rgba(255,255,255,0.95)",
-    padding: 10,
-    borderRadius: 12,
-  },
-
-  mapTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#0369A1",
-  },
-
-  mapSubtitle: {
-    fontSize: 13,
-    color: "#6B7280",
-    marginTop: 3,
-  },
-
-  incidentMarker: {
-    backgroundColor: "#EF4444",
-    padding: 10,
-    borderRadius: 30,
-    borderWidth: 2,
-    borderColor: "#fff",
-  },
-
-  incidentText: {
-    fontSize: 16,
-    color: "#fff",
-  },
-
-  controls: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-    marginBottom: 20,
-    paddingHorizontal: 15,
-  },
-
-  controlButton: {
-    backgroundColor: "#fff",
-    padding: 14,
-    borderRadius: 12,
-    flex: 1,
-    minWidth: "45%",
-    alignItems: "center",
-    elevation: 3,
-  },
-
-  controlText: {
-    fontWeight: "600",
-    color: "#1F2937",
-  },
-
-  statsCard: {
-    backgroundColor: "#fff",
-    margin: 15,
-    padding: 18,
-    borderRadius: 16,
-    elevation: 4,
-  },
-
-  statsTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    marginBottom: 12,
-  },
-
-  statsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 10,
-  },
-
-  statsLabel: {
-    color: "#6B7280",
-  },
-
-  statsValue: {
-    fontWeight: "700",
-    color: "#1F2937",
-  },
-
+  switchText: { fontWeight: "600", color: "#6B7280" },
+  activeSwitch: { color: "#001F3F" },
   legend: {
     backgroundColor: "#fff",
     margin: 15,
-    padding: 18,
-    borderRadius: 16,
-    elevation: 4,
+    marginTop: 0,
+    padding: 16,
+    borderRadius: 14,
   },
-
-  legendTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    marginBottom: 12,
-  },
-
-  legendRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 10,
-  },
-
-  legendDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 10,
-  },
-
-  legendText: {
-    fontSize: 14,
-    color: "#374151",
-  },
+  legendTitle: { fontSize: 16, fontWeight: "700", marginBottom: 10 },
+  legendRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+  legendDot: { width: 12, height: 12, borderRadius: 6, marginRight: 10 },
+  legendText: { fontSize: 14, color: "#374151" },
+  count: { textAlign: "center", color: "#64748B", marginBottom: 20 },
 });

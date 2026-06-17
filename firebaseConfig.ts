@@ -1,15 +1,13 @@
-import { initializeApp } from "firebase/app";
-import { getDatabase } from "firebase/database";
-
-const firebaseConfig = {
-  apiKey: "YOUR_KEY",
-  authDomain: "YOUR_APP.firebaseapp.com",
-  databaseURL: "https://YOUR_APP.firebaseio.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_APP.appspot.com",
-  messagingSenderId: "XXXX",
-  appId: "XXXX",
-};
-
-const app = initializeApp(firebaseConfig);
-export const db = getDatabase(app);
+/**
+ * Firebase — project: civic-shield-1cfc4
+ *
+ * Config is loaded from environment variables (see .env / Cloudflare Pages).
+ * All app code should use src/services/firebase.ts — not this file directly.
+ */
+export {
+  isFirebaseConfigured,
+  getFirebaseApp,
+  getFirebaseAuth,
+  getFirestoreDb,
+  getFirebaseStorage,
+} from "./src/services/firebase";

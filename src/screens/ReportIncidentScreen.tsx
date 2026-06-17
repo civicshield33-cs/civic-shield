@@ -15,8 +15,12 @@ import {
   Linking,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
 
 import IncidentCard from "../components/IncidentCard";
+import { submitIncidentReport } from "../services/incidentService";
+import { getCurrentUserId } from "../services/authService";
+import { APP_URL } from "../config/app";
 
 type Suggestion = {
   name: string;
@@ -34,6 +38,7 @@ export default function ReportIncidentScreen({ navigation }: any) {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
+  const [description, setDescription] = useState("");
   const [formData, setFormData] = useState({
     fullName: "",
     age: "",
@@ -174,7 +179,9 @@ export default function ReportIncidentScreen({ navigation }: any) {
     setSelectedCategory(category);
     setModalVisible(true);
     setFormData({ fullName: "", age: "", location: "", lastSeen: "" });
+    setDescription("");
     setSearchText("");
+    setSelectedImage(null);
   };
 
   // 📲 WHATSAPP SHARE
@@ -184,15 +191,13 @@ export default function ReportIncidentScreen({ navigation }: any) {
       return;
     }
 
-    const incidentId = Math.random().toString(36).substring(7);
-    const link = `https://civicshield.app/incident/${incidentId}`;
-
     const message =
       `🚨 *CIVIC ALERT*\n\n` +
       `Type: ${selectedCategory?.title}\n` +
       `Location: ${formData.location}\n` +
+      (description ? `Details: ${description}\n` : "") +
       `Status: Active\n\n` +
-      `Live Incident:\n${link}`;
+      `View alerts:\n${APP_URL}`;
 
     const url = `whatsapp://send?text=${encodeURIComponent(message)}`;
 
@@ -214,14 +219,44 @@ export default function ReportIncidentScreen({ navigation }: any) {
 
     setIsSubmitting(true);
 
-    await new Promise((r) => setTimeout(r, 2000));
+    try {
+      const userId = await getCurrentUserId();
+      let latitude: number | undefined;
+      let longitude: number | undefined;
 
-    setIsSubmitting(false);
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === "granted") {
+          const loc = await Location.getCurrentPositionAsync({});
+          latitude = loc.coords.latitude;
+          longitude = loc.coords.longitude;
+        }
+      } catch {
+        // GPS optional
+      }
 
-    Alert.alert("Report Sent 🚨", "Police + community notified");
+      await submitIncidentReport({
+        userId,
+        type: selectedCategory?.title || "Other",
+        description: description.trim() || `${selectedCategory?.title} reported in ${formData.location}`,
+        location: formData.location,
+        latitude,
+        longitude,
+        photoUri: selectedImage,
+      });
 
-    setModalVisible(false);
-    navigation.navigate("LiveMap");
+      Alert.alert(
+        "Report Sent 🚨",
+        "Your report was submitted. Police and the community have been notified."
+      );
+
+      setModalVisible(false);
+      navigation.navigate("MainTabs", { screen: "AlertsTab" });
+    } catch {
+      Alert.alert("Error", "Could not submit report. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -297,6 +332,14 @@ export default function ReportIncidentScreen({ navigation }: any) {
               />
             )}
 
+            <TextInput
+              placeholder="Describe what happened (optional)"
+              value={description}
+              onChangeText={setDescription}
+              style={[styles.input, { minHeight: 70 }]}
+              multiline
+            />
+
             {/* STATUS */}
             <View style={styles.status}>
               <Text>🟢 Police + Community alerted</Text>
@@ -311,7 +354,7 @@ export default function ReportIncidentScreen({ navigation }: any) {
             </TouchableOpacity>
 
             {/* SUBMIT */}
-            <TouchableOpacity style={styles.btn} onPress={submitReport}>
+            <TouchableOpacity style={styles.btn} onPress={submitReport} disabled={isSubmitting}>
               {isSubmitting ? (
                 <ActivityIndicator color="white" />
               ) : (

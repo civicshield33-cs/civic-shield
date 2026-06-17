@@ -12,18 +12,20 @@ import {
 
 import AppInput from "../components/AppInput";
 import PrimaryButton from "../components/PrimaryButton";
-import { saveUser } from "../utils/auth";
+import { registerAccount } from "../services/authService";
 import { showAlert } from "../utils/alert";
 import { COLORS } from "../theme/colors";
 
 type FieldErrors = {
   fullName?: string;
+  email?: string;
   phone?: string;
   password?: string;
 };
 
 function validateForm(
   fullName: string,
+  email: string,
   phone: string,
   password: string
 ): FieldErrors {
@@ -31,6 +33,12 @@ function validateForm(
 
   if (!fullName.trim()) {
     errors.fullName = "Full name is required.";
+  }
+
+  if (!email.trim()) {
+    errors.email = "Email address is required.";
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    errors.email = "Enter a valid email address.";
   }
 
   if (!phone.trim()) {
@@ -50,6 +58,7 @@ function validateForm(
 
 export default function RegisterScreen({ navigation }: any) {
   const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [nationalId, setNationalId] = useState("");
   const [password, setPassword] = useState("");
@@ -65,7 +74,7 @@ export default function RegisterScreen({ navigation }: any) {
   };
 
   const handleRegister = async () => {
-    const errors = validateForm(fullName, phone, password);
+    const errors = validateForm(fullName, email, phone, password);
     setFieldErrors(errors);
     setFormError("");
 
@@ -77,15 +86,25 @@ export default function RegisterScreen({ navigation }: any) {
     try {
       setLoading(true);
 
-      await saveUser({
+      const result = await registerAccount({
         fullName: fullName.trim(),
+        email: email.trim(),
         phone: phone.trim(),
         nationalId: nationalId.trim(),
         password,
         createdAt: new Date().toISOString(),
       });
 
-      navigation.replace("Contacts");
+      if (!result.ok) {
+        setFormError(result.message);
+        return;
+      }
+
+      if (result.warning) {
+        showAlert("Account created", result.warning);
+      }
+
+      navigation.replace("MainTabs");
     } catch {
       showAlert("Error", "Failed to create account. Please try again.");
     } finally {
@@ -98,13 +117,6 @@ export default function RegisterScreen({ navigation }: any) {
       <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
 
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={styles.backArrow}>←</Text>
-        </TouchableOpacity>
-
         <View style={styles.headerTextWrap}>
           <Text style={styles.headerTitle}>Create Account</Text>
           <Text style={styles.headerSubtitle}>
@@ -145,6 +157,20 @@ export default function RegisterScreen({ navigation }: any) {
               }}
               required
               error={fieldErrors.fullName}
+            />
+
+            <AppInput
+              label="Email Address"
+              placeholder="you@example.com"
+              keyboardType="email-address"
+              value={email}
+              onChangeText={(text) => {
+                setEmail(text);
+                clearFieldError("email");
+              }}
+              required
+              error={fieldErrors.email}
+              hint="Used for your Firebase account and recovery"
             />
 
             <AppInput
@@ -219,22 +245,6 @@ const styles = StyleSheet.create({
     paddingTop: 56,
     paddingBottom: 28,
     paddingHorizontal: 20,
-  },
-
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.12)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 18,
-  },
-
-  backArrow: {
-    fontSize: 22,
-    color: "#FFFFFF",
-    fontWeight: "700",
   },
 
   headerTextWrap: {

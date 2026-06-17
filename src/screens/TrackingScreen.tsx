@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -6,17 +6,113 @@ import {
   StatusBar,
   TouchableOpacity,
 } from "react-native";
+import MapView, { Marker, Polyline } from "react-native-maps";
+import * as Location from "expo-location";
+import { Ionicons } from "@expo/vector-icons";
 
-import MapView, { Marker } from "react-native-maps";
+import { useSOSStore } from "../store/sosStore";
+import {
+  appendSosLocation,
+  getSosIncident,
+  resolveSosIncident,
+  subscribeSosIncident,
+} from "../services/sosService";
+import { GeoPoint } from "../types/emergency";
 
-export default function TrackingScreen({ navigation }: any) {
-  const [mapType, setMapType] = useState<"hybrid" | "satellite">("hybrid");
+export default function TrackingScreen({ navigation, route }: any) {
+  const incidentId =
+    route?.params?.incidentId || useSOSStore.getState().incidentId;
+  const { deactivate, contactsNotified } = useSOSStore();
+
+  const [mapType, setMapType] = useState<"hybrid" | "standard">("hybrid");
+  const [trail, setTrail] = useState<GeoPoint[]>([]);
+  const [current, setCurrent] = useState<GeoPoint | null>(null);
+  const [lastUpdate, setLastUpdate] = useState("Just now");
+  const mapRef = useRef<MapView>(null);
+  const watchRef = useRef<Location.LocationSubscription | null>(null);
+
+  useEffect(() => {
+    if (!incidentId) return;
+
+    const unsub = subscribeSosIncident(incidentId, (incident) => {
+      if (!incident) return;
+      setTrail(incident.locationTrail);
+      if (incident.location) setCurrent(incident.location);
+    });
+
+    return unsub;
+  }, [incidentId]);
+
+  useEffect(() => {
+    if (!incidentId) return;
+
+    const startWatch = async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") return;
+
+      watchRef.current = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          distanceInterval: 10,
+          timeInterval: 3000,
+        },
+        async (loc) => {
+          const point: GeoPoint = {
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+            timestamp: new Date().toISOString(),
+          };
+          setCurrent(point);
+          setLastUpdate("Just now");
+          await appendSosLocation(incidentId, point);
+
+          mapRef.current?.animateToRegion({
+            latitude: point.latitude,
+            longitude: point.longitude,
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01,
+          });
+        }
+      );
+    };
+
+    startWatch();
+    getSosIncident(incidentId).then((incident) => {
+      if (incident?.locationTrail?.length) {
+        setTrail(incident.locationTrail);
+        setCurrent(incident.locationTrail[incident.locationTrail.length - 1]);
+      }
+    });
+
+    return () => {
+      watchRef.current?.remove();
+    };
+  }, [incidentId]);
+
+  const endEmergency = async () => {
+    if (incidentId) await resolveSosIncident(incidentId);
+    deactivate();
+    navigation.navigate("MainTabs");
+  };
+
+  const region = current
+    ? {
+        latitude: current.latitude,
+        longitude: current.longitude,
+        latitudeDelta: 0.02,
+        longitudeDelta: 0.02,
+      }
+    : {
+        latitude: 13.4549,
+        longitude: -16.579,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      };
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#001F3F" />
 
-      {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
@@ -24,84 +120,43 @@ export default function TrackingScreen({ navigation }: any) {
         >
           <Text style={styles.backArrow}>←</Text>
         </TouchableOpacity>
-
         <Text style={styles.headerTitle}>Live Tracking</Text>
-
         <View style={styles.liveBadge}>
           <Text style={styles.liveText}>LIVE</Text>
         </View>
       </View>
 
-      {/* MAP */}
       <View style={styles.mapContainer}>
         <MapView
+          ref={mapRef}
           style={styles.map}
           mapType={mapType}
-          initialRegion={{
-            latitude: 13.4531,
-            longitude: -16.7189,
-            latitudeDelta: 0.02,
-            longitudeDelta: 0.02,
-          }}
+          initialRegion={region}
           showsUserLocation
-          showsCompass
-          showsScale
-          showsTraffic
-          showsMyLocationButton
-          zoomEnabled
-          scrollEnabled
-          rotateEnabled
-          pitchEnabled
         >
-          {/* USER */}
-          <Marker
-            coordinate={{
-              latitude: 13.4531,
-              longitude: -16.7189,
-            }}
-            title="You"
-            description="Current Location"
-          >
-            <View style={styles.userDot}>
-              <Text style={styles.userDotText}>🚶</Text>
-            </View>
-          </Marker>
+          {trail.length > 1 ? (
+            <Polyline
+              coordinates={trail.map((p) => ({
+                latitude: p.latitude,
+                longitude: p.longitude,
+              }))}
+              strokeColor="#2563EB"
+              strokeWidth={4}
+            />
+          ) : null}
 
-          {/* POLICE UNIT */}
-          <Marker
-            coordinate={{
-              latitude: 13.457,
-              longitude: -16.714,
-            }}
-            title="Police Unit P-08"
-            description="Responding"
-            pinColor="green"
-          />
-
-          {/* EMERGENCY */}
-          <Marker
-            coordinate={{
-              latitude: 13.448,
-              longitude: -16.722,
-            }}
-            title="Emergency Alert"
-            description="Active Incident"
-            pinColor="red"
-          />
-
-          {/* AMBULANCE */}
-          <Marker
-            coordinate={{
-              latitude: 13.451,
-              longitude: -16.711,
-            }}
-            title="Ambulance A-12"
-            description="En Route"
-            pinColor="purple"
-          />
+          {current ? (
+            <Marker
+              coordinate={{
+                latitude: current.latitude,
+                longitude: current.longitude,
+              }}
+              title="You"
+              description="Current location"
+            />
+          ) : null}
         </MapView>
 
-        {/* MAP TYPE SWITCH */}
         <View style={styles.mapSwitch}>
           <TouchableOpacity onPress={() => setMapType("hybrid")}>
             <Text
@@ -113,74 +168,38 @@ export default function TrackingScreen({ navigation }: any) {
               Hybrid
             </Text>
           </TouchableOpacity>
-
-          <TouchableOpacity onPress={() => setMapType("satellite")}>
+          <TouchableOpacity onPress={() => setMapType("standard")}>
             <Text
               style={[
                 styles.switchText,
-                mapType === "satellite" && styles.activeSwitch,
+                mapType === "standard" && styles.activeSwitch,
               ]}
             >
-              Satellite
+              Map
             </Text>
           </TouchableOpacity>
         </View>
-
-        {/* LOCATION CARD */}
-        <View style={styles.locationInfo}>
-          <View style={styles.locationRow}>
-            <Text style={styles.pinIcon}>📍</Text>
-
-            <View>
-              <Text style={styles.locationTitle}>Live GPS Tracking</Text>
-              <Text style={styles.locationSubtitle}>
-                Kotu, Serrekunda{"\n"}
-                West Coast Region, The Gambia
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* OVERLAY */}
-        <View style={styles.trackingOverlay}>
-          <Text style={styles.trackingTitle}>
-            🇬🇲 Emergency Tracking Active
-          </Text>
-
-          <Text style={styles.trackingSubTitle}>
-            Police Unit En Route • ETA 4 mins
-          </Text>
-        </View>
       </View>
 
-      {/* STATUS PANEL */}
       <View style={styles.statusCard}>
-        <View style={styles.statusRow}>
-          <Text style={styles.statusIcon}>🟢</Text>
-          <Text style={styles.statusText}>Police Unit Assigned</Text>
-        </View>
+        <StatusLine
+          icon="checkmark-circle"
+          text="GPS Tracking Active"
+          ok
+        />
+        <StatusLine
+          icon="people"
+          text={
+            contactsNotified
+              ? "Emergency Contacts Alerted"
+              : "Alerting emergency contacts..."
+          }
+          ok={contactsNotified}
+        />
+        <StatusLine icon="shield" text="Police Notified" ok />
+        <StatusLine icon="time" text={`Last update: ${lastUpdate}`} ok />
 
-        <View style={styles.statusRow}>
-          <Text style={styles.statusIcon}>🟢</Text>
-          <Text style={styles.statusText}>Emergency Contacts Alerted</Text>
-        </View>
-
-        <View style={styles.statusRow}>
-          <Text style={styles.statusIcon}>🟢</Text>
-          <Text style={styles.statusText}>GPS Tracking Active</Text>
-        </View>
-
-        <View style={styles.statusRow}>
-          <Text style={styles.statusIcon}>🚓</Text>
-          <Text style={styles.statusText}>Estimated Arrival: 4 Minutes</Text>
-        </View>
-
-        <View style={styles.statusRow}>
-          <Text style={styles.statusIcon}>🕒</Text>
-          <Text style={styles.statusText}>Last Update: 5 Seconds Ago</Text>
-        </View>
-
-        <TouchableOpacity style={styles.endButton}>
+        <TouchableOpacity style={styles.endButton} onPress={endEmergency}>
           <Text style={styles.endButtonText}>End Emergency</Text>
         </TouchableOpacity>
       </View>
@@ -188,12 +207,30 @@ export default function TrackingScreen({ navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#F8FAFC",
-  },
+function StatusLine({
+  icon,
+  text,
+  ok,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  text: string;
+  ok: boolean;
+}) {
+  return (
+    <View style={styles.statusRow}>
+      <Ionicons
+        name={icon}
+        size={20}
+        color={ok ? "#059669" : "#94A3B8"}
+        style={styles.statusIcon}
+      />
+      <Text style={styles.statusText}>{text}</Text>
+    </View>
+  );
+}
 
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#F8FAFC" },
   header: {
     backgroundColor: "#001F3F",
     paddingTop: 70,
@@ -202,17 +239,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-
-  backButton: {
-    paddingRight: 15,
-  },
-
-  backArrow: {
-    fontSize: 28,
-    color: "#FFFFFF",
-    fontWeight: "bold",
-  },
-
+  backButton: { paddingRight: 15 },
+  backArrow: { fontSize: 28, color: "#FFFFFF", fontWeight: "bold" },
   headerTitle: {
     flex: 1,
     fontSize: 22,
@@ -220,29 +248,15 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     textAlign: "center",
   },
-
   liveBadge: {
     backgroundColor: "#EF4444",
     paddingHorizontal: 14,
     paddingVertical: 5,
     borderRadius: 20,
   },
-
-  liveText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-
-  mapContainer: {
-    flex: 1,
-    position: "relative",
-  },
-
-  map: {
-    flex: 1,
-  },
-
+  liveText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  mapContainer: { flex: 1, position: "relative" },
+  map: { flex: 1 },
   mapSwitch: {
     position: "absolute",
     top: 10,
@@ -254,71 +268,8 @@ const styles = StyleSheet.create({
     gap: 10,
     elevation: 5,
   },
-
-  switchText: {
-    fontWeight: "600",
-    color: "#6B7280",
-  },
-
-  activeSwitch: {
-    color: "#001F3F",
-  },
-
-  locationInfo: {
-    position: "absolute",
-    top: 3,
-    left: 20,
-    right: 20,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 10,
-    elevation: 10,
-  },
-
-  locationRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  pinIcon: {
-    fontSize: 32,
-    marginRight: 14,
-  },
-
-  locationTitle: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#1F2937",
-  },
-
-  locationSubtitle: {
-    fontSize: 15,
-    color: "#6B7280",
-    marginTop: 4,
-  },
-
-  trackingOverlay: {
-    position: "absolute",
-    bottom: 10,
-    left: 20,
-    right: 20,
-    backgroundColor: "rgba(0,31,63,0.90)",
-    padding: 10,
-    borderRadius: 14,
-  },
-
-  trackingTitle: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-
-  trackingSubTitle: {
-    color: "#D1D5DB",
-    fontSize: 13,
-    marginTop: 4,
-  },
-
+  switchText: { fontWeight: "600", color: "#6B7280", paddingHorizontal: 6 },
+  activeSwitch: { color: "#001F3F" },
   statusCard: {
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 28,
@@ -326,24 +277,9 @@ const styles = StyleSheet.create({
     padding: 24,
     elevation: 15,
   },
-
-  statusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-
-  statusIcon: {
-    fontSize: 22,
-    marginRight: 14,
-  },
-
-  statusText: {
-    fontSize: 16,
-    color: "#1F2937",
-    fontWeight: "500",
-  },
-
+  statusRow: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
+  statusIcon: { marginRight: 14 },
+  statusText: { fontSize: 16, color: "#1F2937", fontWeight: "500" },
   endButton: {
     backgroundColor: "#EF4444",
     borderRadius: 14,
@@ -351,23 +287,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 15,
   },
-
-  endButtonText: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-
-  userDot: {
-    backgroundColor: "#2563EB",
-    padding: 6,
-    borderRadius: 20,
-    borderWidth: 2,
-    borderColor: "#fff",
-  },
-
-  userDotText: {
-    color: "#fff",
-    fontSize: 12,
-  },
+  endButtonText: { color: "#FFFFFF", fontSize: 18, fontWeight: "700" },
 });
