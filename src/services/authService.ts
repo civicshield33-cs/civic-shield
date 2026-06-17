@@ -67,7 +67,7 @@ function mapLoginFirebaseError(error: any): string {
 }
 
 export type RegisterResult =
-  | { ok: true; user: AppUser; warning?: string }
+  | { ok: true; user: AppUser; warning?: string; cloudSaved?: boolean }
   | { ok: false; message: string };
 
 export async function registerAccount(user: AppUser): Promise<RegisterResult> {
@@ -80,14 +80,14 @@ export async function registerAccount(user: AppUser): Promise<RegisterResult> {
 
   if (!isFirebaseConfigured()) {
     await saveUser(userRecord);
-    return { ok: true, user: userRecord };
+    return { ok: true, user: userRecord, cloudSaved: false };
   }
 
   const auth = getFirebaseAuth();
   const db = getFirestoreDb();
   if (!auth || !db) {
     await saveUser(userRecord);
-    return { ok: true, user: userRecord };
+    return { ok: true, user: userRecord, cloudSaved: false };
   }
 
   try {
@@ -111,11 +111,12 @@ export async function registerAccount(user: AppUser): Promise<RegisterResult> {
 
     try {
       await saveUserProfileToFirestore(savedUser, credential.user.uid);
-      return { ok: true, user: savedUser };
+      return { ok: true, user: savedUser, cloudSaved: true };
     } catch (firestoreError: any) {
       return {
         ok: true,
         user: savedUser,
+        cloudSaved: false,
         warning:
           firestoreError?.code === "permission-denied"
             ? "Account created. Profile not saved to cloud yet — publish Firestore rules in Firebase Console."

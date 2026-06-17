@@ -1,4 +1,5 @@
 import { getFirebaseAuth, getFirestoreDb, getFirebaseStorage, isFirebaseConfigured } from "./firebase";
+import { ensureFirebaseAuth } from "./firebaseAuth";
 import {
   appendLocalItem,
   deleteLocalItem,
@@ -21,7 +22,6 @@ import {
   doc,
   limit,
 } from "firebase/firestore";
-import { signInAnonymously } from "firebase/auth";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 function createId() {
@@ -158,19 +158,6 @@ function buildCommunityAlert(input: {
     latitude: input.latitude,
     longitude: input.longitude,
   };
-}
-
-async function ensureFirebaseAuth(): Promise<string | null> {
-  const auth = getFirebaseAuth();
-  if (!auth) return null;
-  if (auth.currentUser) return auth.currentUser.uid;
-
-  try {
-    const credential = await signInAnonymously(auth);
-    return credential.user.uid;
-  } catch {
-    return null;
-  }
 }
 
 async function resolveReportUserId(fallbackUserId: string) {

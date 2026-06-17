@@ -12,6 +12,7 @@
     "expo-contacts": "~15.0.11",
     "expo-dev-client": "~6.0.21",
     "expo-device": "~8.0.10",
+    "expo-font": "~14.0.12",
     "expo-image-picker": "~17.0.11",
     "expo-location": "~19.0.8",
     "expo-notifications": "~0.32.17",
@@ -50,7 +51,7 @@
     "android": "node node_modules/expo/bin/cli run:android",
     "ios": "node node_modules/expo/bin/cli run:ios",
     "web": "node node_modules/expo/bin/cli start --web",
-    "build:web": "node node_modules/expo/bin/cli export -p web",
+    "build:web": "node scripts/check-firebase-env.mjs && node node_modules/expo/bin/cli export -p web",
     "deploy:rules": "firebase deploy --only firestore:rules --project civic-shield-1cfc4"
   }
 }

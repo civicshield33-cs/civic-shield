@@ -102,6 +102,11 @@ export default function RegisterScreen({ navigation }: any) {
 
       if (result.warning) {
         showAlert("Account created", result.warning);
+      } else if (result.cloudSaved === false && !result.warning) {
+        showAlert(
+          "Account created",
+          "Signed in locally. Cloud profile sync failed — sign out and sign in again, or check Firebase rules."
+        );
       }
 
       navigation.replace("MainTabs");

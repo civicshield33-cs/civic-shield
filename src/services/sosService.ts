@@ -6,7 +6,8 @@ import {
   DEFAULT_MAP_CENTER,
   getTownCenter,
 } from "../data/gambiaLocations";
-import { getFirebaseAuth, getFirestoreDb, isFirebaseConfigured } from "./firebase";
+import { getFirestoreDb, isFirebaseConfigured } from "./firebase";
+import { ensureFirebaseAuth } from "./firebaseAuth";
 import {
   appendLocalItem,
   getLocalItem,
@@ -24,23 +25,9 @@ import {
   setDoc,
   updateDoc,
 } from "firebase/firestore";
-import { signInAnonymously } from "firebase/auth";
 
 function createId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
-async function ensureFirebaseAuth(): Promise<string | null> {
-  const auth = getFirebaseAuth();
-  if (!auth) return null;
-  if (auth.currentUser) return auth.currentUser.uid;
-
-  try {
-    const credential = await signInAnonymously(auth);
-    return credential.user.uid;
-  } catch {
-    return null;
-  }
 }
 
 async function saveSosLocally(incident: SosIncident) {

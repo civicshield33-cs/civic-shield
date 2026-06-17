@@ -1,5 +1,10 @@
 import { Platform } from "react-native";
 import { getStoredUser } from "../utils/auth";
+import {
+  loadUserProfileFromFirestore,
+  saveUserProfileToFirestore,
+} from "./userProfileService";
+import { FIREBASE_PUBLIC_CONFIG } from "../config/firebase.public";
 import { getFirebaseAuth, isFirebaseConfigured } from "./firebase";
 import { signOut } from "firebase/auth";
 
@@ -10,9 +15,13 @@ import { signOut } from "firebase/auth";
 export async function clearFirebaseWebPersistence() {
   if (Platform.OS !== "web" || typeof indexedDB === "undefined") return;
 
+  const apiKey =
+    process.env.EXPO_PUBLIC_FIREBASE_API_KEY?.trim() ||
+    FIREBASE_PUBLIC_CONFIG.apiKey;
+
   const dbNames = [
     "firebaseLocalStorageDb",
-    `firebase:authUser:${process.env.EXPO_PUBLIC_FIREBASE_API_KEY}:[DEFAULT]`,
+    `firebase:authUser:${apiKey}:[DEFAULT]`,
   ];
 
   await Promise.all(
@@ -69,9 +78,39 @@ export async function syncFirebaseAuthSession() {
   // Validate token when both sessions exist
   if (firebaseUser && localUser) {
     try {
-      await firebaseUser.getIdToken();
+      await firebaseUser.getIdToken(false);
     } catch {
       await signOut(auth).catch(() => undefined);
     }
+  }
+}
+
+export async function syncMissingUserProfile() {
+  if (!isFirebaseConfigured()) return;
+
+  const localUser = await getStoredUser();
+  if (!localUser?.uid) return;
+
+  const auth = getFirebaseAuth();
+  if (!auth) return;
+
+  try {
+    await auth.authStateReady();
+  } catch {
+    return;
+  }
+
+  if (!auth.currentUser?.uid) return;
+
+  try {
+    const existing = await loadUserProfileFromFirestore(auth.currentUser.uid);
+    if (!existing) {
+      await saveUserProfileToFirestore(
+        { ...localUser, uid: auth.currentUser.uid },
+        auth.currentUser.uid
+      );
+    }
+  } catch {
+    // Non-blocking — will retry on next app open.
   }
 }

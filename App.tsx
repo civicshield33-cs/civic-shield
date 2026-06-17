@@ -1,13 +1,18 @@
 import "react-native-gesture-handler";
 import React, { useEffect, useMemo, useState } from "react";
-import { Platform } from "react-native";
+import { Platform, View, ActivityIndicator } from "react-native";
+import { useFonts } from "expo-font";
+import Ionicons from "@expo/vector-icons/Ionicons";
 
 import AppNavigator from "./src/navigation/AppNavigator";
 import AdminWebNavigator from "./src/navigation/AdminWebNavigator";
 import PublicTrackScreen from "./src/screens/PublicTrackScreen";
 import { useContactStore } from "./src/store/contactStore";
 import { useSettingsStore } from "./src/store/settingsStore";
-import { syncFirebaseAuthSession } from "./src/services/authRecovery";
+import {
+  syncFirebaseAuthSession,
+  syncMissingUserProfile,
+} from "./src/services/authRecovery";
 
 function getQueryParam(name: string) {
   if (Platform.OS !== "web" || typeof window === "undefined") return null;
@@ -15,6 +20,7 @@ function getQueryParam(name: string) {
 }
 
 export default function App() {
+  const [fontsLoaded] = useFonts(Ionicons.font);
   const loadContacts = useContactStore((state) => state.loadContacts);
   const loadSettings = useSettingsStore((state) => state.loadSettings);
   const [publicTrackId, setPublicTrackId] = useState<string | null>(null);
@@ -24,7 +30,9 @@ export default function App() {
   useEffect(() => {
     loadContacts();
     loadSettings();
-    syncFirebaseAuthSession().catch(() => undefined);
+    syncFirebaseAuthSession()
+      .then(() => syncMissingUserProfile())
+      .catch(() => undefined);
   }, [loadContacts, loadSettings]);
 
   useEffect(() => {
@@ -39,6 +47,21 @@ export default function App() {
     () => Boolean(publicTrackId || publicWalkId),
     [publicTrackId, publicWalkId]
   );
+
+  if (!fontsLoaded) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: "#F1F5F9",
+        }}
+      >
+        <ActivityIndicator size="large" color="#001F3F" />
+      </View>
+    );
+  }
 
   if (isPublicView) {
     return (
