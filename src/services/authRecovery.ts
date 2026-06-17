@@ -75,12 +75,19 @@ export async function syncFirebaseAuthSession() {
     return;
   }
 
-  // Validate token when both sessions exist
+  // Validate token when both sessions exist (ignore transient network errors)
   if (firebaseUser && localUser) {
     try {
       await firebaseUser.getIdToken(false);
-    } catch {
-      await signOut(auth).catch(() => undefined);
+    } catch (error: any) {
+      const code = error?.code || "";
+      if (
+        code === "auth/user-token-expired" ||
+        code === "auth/invalid-user-token" ||
+        code === "auth/user-disabled"
+      ) {
+        await signOut(auth).catch(() => undefined);
+      }
     }
   }
 }

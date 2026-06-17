@@ -14,13 +14,20 @@ import {
   syncMissingUserProfile,
 } from "./src/services/authRecovery";
 
+if (Platform.OS === "web") {
+  require("./src/styles/ionicons.web.css");
+}
+
 function getQueryParam(name: string) {
   if (Platform.OS !== "web" || typeof window === "undefined") return null;
   return new URLSearchParams(window.location.search).get(name);
 }
 
 export default function App() {
-  const [fontsLoaded] = useFonts(Ionicons.font);
+  const [nativeFontsLoaded] = useFonts(
+    Platform.OS === "web" ? {} : Ionicons.font
+  );
+  const [webFontsReady, setWebFontsReady] = useState(Platform.OS !== "web");
   const loadContacts = useContactStore((state) => state.loadContacts);
   const loadSettings = useSettingsStore((state) => state.loadSettings);
   const [publicTrackId, setPublicTrackId] = useState<string | null>(null);
@@ -28,7 +35,24 @@ export default function App() {
   const [adminMode, setAdminMode] = useState(false);
 
   useEffect(() => {
-    loadContacts();
+    if (Platform.OS !== "web") return;
+
+    let cancelled = false;
+    const finish = () => {
+      if (!cancelled) setWebFontsReady(true);
+    };
+
+    Ionicons.loadFont().then(finish).catch(finish);
+    const timer = setTimeout(finish, 2500);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    loadContacts().catch(() => undefined);
     loadSettings();
     syncFirebaseAuthSession()
       .then(() => syncMissingUserProfile())
@@ -48,7 +72,10 @@ export default function App() {
     [publicTrackId, publicWalkId]
   );
 
-  if (!fontsLoaded) {
+  const fontsReady =
+    Platform.OS === "web" ? webFontsReady : nativeFontsLoaded;
+
+  if (!fontsReady) {
     return (
       <View
         style={{

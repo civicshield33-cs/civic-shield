@@ -3,6 +3,20 @@ import { signInAnonymously } from "firebase/auth";
 import { getStoredUser } from "../utils/auth";
 import { getFirebaseAuth } from "./firebase";
 
+/** Firebase Auth uid when a session is active; null otherwise. */
+export async function getAuthenticatedUserId(): Promise<string | null> {
+  const auth = getFirebaseAuth();
+  if (!auth) return null;
+
+  try {
+    await auth.authStateReady();
+  } catch {
+    return null;
+  }
+
+  return auth.currentUser?.uid ?? null;
+}
+
 /**
  * Returns a Firebase Auth uid for Firestore writes.
  * Waits for persisted sessions to restore before falling back to anonymous auth.
