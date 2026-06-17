@@ -95,7 +95,7 @@ export default function AccidentReportScreen({ navigation }: any) {
             {/* Photo Upload */}
             <TouchableOpacity style={styles.uploadArea}>
               <Text style={styles.uploadIcon}>📸</Text>
-              <Text style={styles.uploadText}>Upload Photos / Evidence</Text>
+              <Text style={styles.uploadText}>Upload Photos / Evidence (optional)</Text>
             </TouchableOpacity>
 
             <TextInput

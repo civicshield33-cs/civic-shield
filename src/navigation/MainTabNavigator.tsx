@@ -6,6 +6,7 @@ import HomeScreen from "../screens/HomeScreen";
 import CommunityAlertsScreen from "../screens/CommunityAlertsScreen";
 import SafeWalkScreen from "../screens/SafeWalkScreen";
 import SettingsScreen from "../screens/SettingsScreen";
+import TrackingScreen from "../screens/TrackingScreen";
 
 const Tab = createBottomTabNavigator();
 
@@ -23,9 +24,9 @@ export default function MainTabNavigator() {
         options={{ tabBarLabel: "Home" }}
       />
       <Tab.Screen
-        name="AlertsTab"
+        name="CommunityTab"
         component={CommunityAlertsScreen}
-        options={{ tabBarLabel: "Alerts" }}
+        options={{ tabBarLabel: "Community" }}
       />
       <Tab.Screen
         name="SafeWalkTab"
@@ -36,6 +37,14 @@ export default function MainTabNavigator() {
         name="SettingsTab"
         component={SettingsScreen}
         options={{ tabBarLabel: "Settings" }}
+      />
+      <Tab.Screen
+        name="TrackingTab"
+        component={TrackingScreen}
+        options={{
+          tabBarLabel: "Tracking",
+          tabBarButton: () => null,
+        }}
       />
     </Tab.Navigator>
   );

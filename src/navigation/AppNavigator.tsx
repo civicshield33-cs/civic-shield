@@ -11,7 +11,6 @@ import ContactsScreen from "../screens/ContactsScreen";
 import CommandCenterDashboard from "../screens/CommandCenterDashboard";
 import HoldSOSScreen from "../screens/HoldSOSScreen";
 import EmergencyScreen from "../screens/EmergencyScreen";
-import TrackingScreen from "../screens/TrackingScreen";
 import ReportIncidentScreen from "../screens/ReportIncidentScreen";
 import MissingPersonScreen from "../screens/MissingPersonScreen";
 import OverviewScreen from "../screens/OverviewScreen";
@@ -24,12 +23,14 @@ import CrimeReportScreen from "../screens/CrimeReportScreen";
 import AccidentReportScreen from "../screens/AccidentReportScreen";
 import OperatorLoginScreen from "../screens/OperatorLoginScreen";
 import IncidentDetailScreen from "../screens/IncidentDetailScreen";
+import CommunityAlertDetailScreen from "../screens/CommunityAlertDetailScreen";
 import TouristSafetyScreen from "../screens/TouristSafetyScreen";
 import FloodAlertsScreen from "../screens/FloodAlertsScreen";
 import EmergencyPhrasesScreen from "../screens/EmergencyPhrasesScreen";
 import OnboardingScreen from "../screens/OnboardingScreen";
 import { isOnboardingComplete } from "../services/gambiaService";
 import { useSettingsStore } from "../store/settingsStore";
+import { getStoredUser } from "../utils/auth";
 
 const Stack = createNativeStackNavigator();
 
@@ -39,9 +40,17 @@ function AppStack() {
 
   useEffect(() => {
     loadSettings();
-    isOnboardingComplete().then((done) => {
-      setInitialRoute(done ? "Welcome" : "Onboarding");
-    });
+    Promise.all([isOnboardingComplete(), getStoredUser()]).then(
+      ([onboardingDone, user]) => {
+        if (user) {
+          setInitialRoute("MainTabs");
+        } else if (onboardingDone) {
+          setInitialRoute("Welcome");
+        } else {
+          setInitialRoute("Onboarding");
+        }
+      }
+    );
   }, [loadSettings]);
 
   if (!initialRoute) return null;
@@ -62,7 +71,6 @@ function AppStack() {
       <Stack.Screen name="MainTabs" component={MainTabNavigator} />
       <Stack.Screen name="HoldSOS" component={HoldSOSScreen} />
       <Stack.Screen name="Emergency" component={EmergencyScreen} />
-      <Stack.Screen name="Tracking" component={TrackingScreen} />
       <Stack.Screen name="ReportIncident" component={ReportIncidentScreen} />
       <Stack.Screen name="MissingPerson" component={MissingPersonScreen} />
       <Stack.Screen name="FireReport" component={FireReportScreen} />
@@ -75,6 +83,7 @@ function AppStack() {
       <Stack.Screen name="UnitsStatus" component={UnitsStatusScreen} />
       <Stack.Screen name="OperatorLogin" component={OperatorLoginScreen} />
       <Stack.Screen name="IncidentDetail" component={IncidentDetailScreen} />
+      <Stack.Screen name="CommunityAlertDetail" component={CommunityAlertDetailScreen} />
       <Stack.Screen name="TouristSafety" component={TouristSafetyScreen} />
       <Stack.Screen name="FloodAlerts" component={FloodAlertsScreen} />
       <Stack.Screen name="EmergencyPhrases" component={EmergencyPhrasesScreen} />

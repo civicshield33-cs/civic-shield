@@ -15,10 +15,20 @@ import {
   Linking,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import * as Location from "expo-location";
 
 import IncidentCard from "../components/IncidentCard";
-import { submitIncidentReport } from "../services/incidentService";
+import LocationPinMap from "../components/LocationPinMap";
+import {
+  DEFAULT_MAP_CENTER,
+  formatPinLabel,
+  getTownCenter,
+  MapCoordinate,
+  resolveReportCoordinates,
+} from "../data/gambiaLocations";
+import {
+  submitIncidentReport,
+  submitMissingPersonReport,
+} from "../services/incidentService";
 import { getCurrentUserId } from "../services/authService";
 import { APP_URL } from "../config/app";
 
@@ -39,6 +49,9 @@ export default function ReportIncidentScreen({ navigation }: any) {
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   const [description, setDescription] = useState("");
+  const [mapCenter, setMapCenter] = useState<MapCoordinate>(DEFAULT_MAP_CENTER);
+  const [centerRevision, setCenterRevision] = useState(0);
+  const [pin, setPin] = useState<MapCoordinate | null>(null);
   const [formData, setFormData] = useState({
     fullName: "",
     age: "",
@@ -113,6 +126,15 @@ export default function ReportIncidentScreen({ navigation }: any) {
     return (matches / Math.max(a.length, b.length)) * 30;
   };
 
+  const applyLocation = (item: Suggestion) => {
+    setSearchText(item.name);
+    setFormData((prev) => ({ ...prev, location: item.name }));
+    setMapCenter(getTownCenter(item.name));
+    setCenterRevision((value) => value + 1);
+    setPin(null);
+    setShowSuggestions(false);
+  };
+
   // 🔍 SMART SEARCH (UPGRADED)
   const handleSearch = (text: string) => {
     setSearchText(text);
@@ -146,12 +168,37 @@ export default function ReportIncidentScreen({ navigation }: any) {
 
     setSuggestions(filtered);
     setShowSuggestions(true);
+
+    const exact = GAMBIA_LOCATIONS.find(
+      (item) => item.name.toLowerCase() === query
+    );
+    if (exact) {
+      setFormData((prev) => ({ ...prev, location: exact.name }));
+      setMapCenter(getTownCenter(exact.name));
+      setCenterRevision((value) => value + 1);
+      setPin(null);
+    }
+  };
+
+  const confirmSearch = () => {
+    const query = searchText.toLowerCase().trim();
+    if (!query) return;
+
+    const exact = GAMBIA_LOCATIONS.find(
+      (item) => item.name.toLowerCase() === query
+    );
+    if (exact) {
+      applyLocation(exact);
+      return;
+    }
+
+    if (suggestions[0]) {
+      applyLocation(suggestions[0]);
+    }
   };
 
   const selectLocation = (item: Suggestion) => {
-    setSearchText(item.name);
-    setFormData({ ...formData, location: item.name });
-    setShowSuggestions(false);
+    applyLocation(item);
   };
 
   // 📸 IMAGE PICKER
@@ -182,6 +229,9 @@ export default function ReportIncidentScreen({ navigation }: any) {
     setDescription("");
     setSearchText("");
     setSelectedImage(null);
+    setMapCenter(DEFAULT_MAP_CENTER);
+    setCenterRevision(0);
+    setPin(null);
   };
 
   // 📲 WHATSAPP SHARE
@@ -210,6 +260,9 @@ export default function ReportIncidentScreen({ navigation }: any) {
     });
   };
 
+  const isMissingPerson = selectedCategory?.title === "Missing Person";
+  const isCrime = selectedCategory?.title === "Crime";
+
   // 🚨 SUBMIT REPORT
   const submitReport = async () => {
     if (!formData.location) {
@@ -217,41 +270,80 @@ export default function ReportIncidentScreen({ navigation }: any) {
       return;
     }
 
+    if (isCrime && !pin) {
+      Alert.alert("Error", "Please pin your exact spot on the map");
+      return;
+    }
+
+    if (isMissingPerson && !formData.fullName.trim()) {
+      Alert.alert("Error", "Please enter the person's full name");
+      return;
+    }
+
+    if (isMissingPerson && !formData.lastSeen.trim()) {
+      Alert.alert("Error", "Please enter when they were last seen");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
       const userId = await getCurrentUserId();
-      let latitude: number | undefined;
-      let longitude: number | undefined;
+      const coords = resolveReportCoordinates(
+        formData.location,
+        pin?.latitude,
+        pin?.longitude
+      );
 
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === "granted") {
-          const loc = await Location.getCurrentPositionAsync({});
-          latitude = loc.coords.latitude;
-          longitude = loc.coords.longitude;
-        }
-      } catch {
-        // GPS optional
+      let savedTo: "cloud" | "local" = "local";
+      let uploadFailed = false;
+
+      if (isMissingPerson) {
+        const result = await submitMissingPersonReport({
+          userId,
+          fullName: formData.fullName.trim(),
+          age: formData.age.trim() || undefined,
+          lastSeen: formData.lastSeen.trim(),
+          location: formData.location,
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          photoUri: selectedImage || undefined,
+        });
+        savedTo = result.savedTo;
+        uploadFailed = Boolean(result.uploadFailed);
+      } else {
+        const result = await submitIncidentReport({
+          userId,
+          type: selectedCategory?.title || "Other",
+          description:
+            description.trim() ||
+            `${selectedCategory?.title} reported in ${formData.location}`,
+          location: formData.location,
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          photoUri: selectedImage || undefined,
+        });
+        savedTo = result.savedTo;
+        uploadFailed = Boolean(result.uploadFailed);
       }
 
-      await submitIncidentReport({
-        userId,
-        type: selectedCategory?.title || "Other",
-        description: description.trim() || `${selectedCategory?.title} reported in ${formData.location}`,
-        location: formData.location,
-        latitude,
-        longitude,
-        photoUri: selectedImage,
-      });
+      if (uploadFailed) {
+        Alert.alert(
+          "Upload Failed",
+          "We could not upload your report after 3 attempts. It was removed from this device.\n\nPlease check your connection and try again."
+        );
+        return;
+      }
 
       Alert.alert(
-        "Report Sent 🚨",
-        "Your report was submitted. Police and the community have been notified."
+        "Report Sent",
+        savedTo === "cloud"
+          ? "🟢 Police + Community alerted.\n\nYour report is now visible in Community."
+          : "Your report is saved on this device. We'll keep retrying to upload it to the cloud."
       );
 
       setModalVisible(false);
-      navigation.navigate("MainTabs", { screen: "AlertsTab" });
+      navigation.navigate("MainTabs", { screen: "CommunityTab" });
     } catch {
       Alert.alert("Error", "Could not submit report. Please try again.");
     } finally {
@@ -290,9 +382,16 @@ export default function ReportIncidentScreen({ navigation }: any) {
       {/* MODAL */}
       <Modal visible={modalVisible} animationType="slide" transparent>
         <View style={styles.modal}>
-          <View style={styles.modalBox}>
+          <ScrollView
+            contentContainerStyle={styles.modalScroll}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.modalBox}>
             <Text style={styles.modalTitle}>
               Report {selectedCategory?.title}
+            </Text>
+            <Text style={styles.modalSubtitle}>
+              Police and the community are notified when you submit.
             </Text>
 
             {/* IMAGE */}
@@ -300,15 +399,47 @@ export default function ReportIncidentScreen({ navigation }: any) {
               {selectedImage ? (
                 <Image source={{ uri: selectedImage }} style={styles.img} />
               ) : (
-                <Text>📸 Upload Photo</Text>
+                <Text>📸 Upload Photo (optional)</Text>
               )}
             </TouchableOpacity>
+
+            {isMissingPerson ? (
+              <>
+                <TextInput
+                  placeholder="Full name"
+                  value={formData.fullName}
+                  onChangeText={(text) =>
+                    setFormData({ ...formData, fullName: text })
+                  }
+                  style={styles.input}
+                />
+                <TextInput
+                  placeholder="Age (optional)"
+                  value={formData.age}
+                  onChangeText={(text) =>
+                    setFormData({ ...formData, age: text })
+                  }
+                  style={styles.input}
+                  keyboardType="number-pad"
+                />
+                <TextInput
+                  placeholder="Last seen (e.g. Today 3pm at market)"
+                  value={formData.lastSeen}
+                  onChangeText={(text) =>
+                    setFormData({ ...formData, lastSeen: text })
+                  }
+                  style={styles.input}
+                />
+              </>
+            ) : null}
 
             {/* SEARCH */}
             <TextInput
               placeholder="Search location in The Gambia"
               value={searchText}
               onChangeText={handleSearch}
+              onSubmitEditing={confirmSearch}
+              returnKeyType="search"
               style={styles.input}
             />
 
@@ -332,6 +463,33 @@ export default function ReportIncidentScreen({ navigation }: any) {
               />
             )}
 
+            <Text style={styles.sectionTitle}>Pin your exact spot</Text>
+            <Text style={styles.sectionHint}>
+              Tap or drag on the map — your pin is what we save
+            </Text>
+
+            <LocationPinMap
+              center={mapCenter}
+              pin={pin}
+              onPinChange={setPin}
+              centerRevision={centerRevision}
+            />
+
+            {pin ? (
+              <>
+                <Text style={styles.pinSetHint}>{formatPinLabel(pin)}</Text>
+                <TouchableOpacity onPress={() => setPin(null)}>
+                  <Text style={styles.clearPinText}>Clear pin</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <Text style={styles.pinRequiredHint}>
+                {isCrime
+                  ? "Tap the map to place your pin — required before you can submit."
+                  : "Tap the map to place your pin (optional)."}
+              </Text>
+            )}
+
             <TextInput
               placeholder="Describe what happened (optional)"
               value={description}
@@ -340,36 +498,35 @@ export default function ReportIncidentScreen({ navigation }: any) {
               multiline
             />
 
-            {/* STATUS */}
-            <View style={styles.status}>
-              <Text>🟢 Police + Community alerted</Text>
+            {/* ACTIONS */}
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={styles.whatsappBtn}
+                onPress={shareToWhatsApp}
+              >
+                <Text style={styles.whatsappText}>📲 WhatsApp</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.btn}
+                onPress={submitReport}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text style={styles.submitText}>Submit Report</Text>
+                )}
+              </TouchableOpacity>
             </View>
-
-            {/* WHATSAPP */}
-            <TouchableOpacity
-              style={styles.whatsappBtn}
-              onPress={shareToWhatsApp}
-            >
-              <Text style={styles.whatsappText}>📲 Share on WhatsApp</Text>
-            </TouchableOpacity>
-
-            {/* SUBMIT */}
-            <TouchableOpacity style={styles.btn} onPress={submitReport} disabled={isSubmitting}>
-              {isSubmitting ? (
-                <ActivityIndicator color="white" />
-              ) : (
-                <Text style={{ color: "white", fontWeight: "700" }}>
-                  Submit Report
-                </Text>
-              )}
-            </TouchableOpacity>
 
             <TouchableOpacity onPress={() => setModalVisible(false)}>
               <Text style={{ textAlign: "center", marginTop: 10 }}>
                 Cancel
               </Text>
             </TouchableOpacity>
-          </View>
+            </View>
+          </ScrollView>
         </View>
       </Modal>
     </View>
@@ -400,18 +557,64 @@ const styles = StyleSheet.create({
   modal: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
+  },
+
+  modalScroll: {
+    flexGrow: 1,
     justifyContent: "center",
     alignItems: "center",
+    paddingVertical: 24,
   },
 
   modalBox: {
     backgroundColor: "white",
     width: "90%",
+    maxWidth: 420,
     padding: 20,
     borderRadius: 20,
   },
 
-  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 10 },
+  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
+
+  modalSubtitle: {
+    fontSize: 13,
+    color: "#64748B",
+    marginBottom: 12,
+    lineHeight: 18,
+  },
+
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#001F3F",
+    marginBottom: 4,
+  },
+
+  sectionHint: {
+    fontSize: 13,
+    color: "#64748B",
+    marginBottom: 10,
+  },
+
+  pinSetHint: {
+    fontSize: 13,
+    color: "#059669",
+    marginBottom: 6,
+  },
+
+  pinRequiredHint: {
+    fontSize: 13,
+    color: "#64748B",
+    marginBottom: 10,
+  },
+
+  clearPinText: {
+    fontSize: 13,
+    color: "#EF4444",
+    fontWeight: "600",
+    marginBottom: 10,
+    textAlign: "center",
+  },
 
   imageBox: {
     height: 120,
@@ -444,30 +647,41 @@ const styles = StyleSheet.create({
     borderColor: "#eee",
   },
 
-  status: {
-    backgroundColor: "#DCFCE7",
-    padding: 10,
-    borderRadius: 10,
-    marginVertical: 10,
+  actionRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
   },
 
   btn: {
+    flex: 1,
     backgroundColor: "#EF4444",
     padding: 15,
     borderRadius: 12,
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: 52,
+  },
+
+  submitText: {
+    color: "white",
+    fontWeight: "700",
+    fontSize: 15,
   },
 
   whatsappBtn: {
+    flex: 1,
     backgroundColor: "#25D366",
     padding: 15,
     borderRadius: 12,
     alignItems: "center",
-    marginBottom: 10,
+    justifyContent: "center",
+    minHeight: 52,
   },
 
   whatsappText: {
     color: "white",
     fontWeight: "700",
+    fontSize: 15,
   },
 });

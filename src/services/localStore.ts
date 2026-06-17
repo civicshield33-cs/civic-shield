@@ -45,10 +45,22 @@ export async function getLocalItem<T extends { id: string }>(
   return items.find((item) => item.id === id) || null;
 }
 
+export async function deleteLocalItem<T extends { id: string }>(
+  key: string,
+  id: string
+) {
+  const items = await readLocalCollection<T>(key);
+  await writeLocalCollection(
+    key,
+    items.filter((item) => item.id !== id)
+  );
+}
+
 export const LOCAL_KEYS = {
   sos: "LOCAL_SOS_INCIDENTS",
   reports: "LOCAL_INCIDENT_REPORTS",
   alerts: "LOCAL_COMMUNITY_ALERTS",
   missing: "LOCAL_MISSING_PERSONS",
   walks: "LOCAL_SAFE_WALKS",
+  pendingReports: "LOCAL_PENDING_REPORT_SYNCS",
 };

@@ -10,7 +10,7 @@ const TAB_ICONS: Record<
   { active: keyof typeof Ionicons.glyphMap; inactive: keyof typeof Ionicons.glyphMap }
 > = {
   HomeTab: { active: "home", inactive: "home-outline" },
-  AlertsTab: { active: "notifications", inactive: "notifications-outline" },
+  CommunityTab: { active: "people", inactive: "people-outline" },
   SafeWalkTab: { active: "walk", inactive: "walk-outline" },
   SettingsTab: { active: "settings", inactive: "settings-outline" },
 };
@@ -20,6 +20,11 @@ export default function AppTabBar({ state, descriptors, navigation }: BottomTabB
     <View style={styles.bottomNav}>
       {state.routes.map((route, index) => {
         const { options } = descriptors[route.key];
+
+        if (options.tabBarButton != null) {
+          return null;
+        }
+
         const label =
           options.tabBarLabel !== undefined
             ? String(options.tabBarLabel)

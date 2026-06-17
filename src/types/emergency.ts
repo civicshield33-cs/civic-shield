@@ -14,6 +14,8 @@ export type SosIncident = {
   updatedAt: string;
   location: GeoPoint | null;
   locationTrail: GeoPoint[];
+  locationArea?: string;
+  locationSource?: "gps" | "nearby";
   contactsNotified: boolean;
   audioUrl?: string;
   photoUrl?: string;
@@ -40,6 +42,10 @@ export type CommunityAlert = {
   severity: "critical" | "high" | "medium" | "low";
   createdAt: string;
   description?: string;
+  latitude?: number;
+  longitude?: number;
+  userId?: string;
+  reportId?: string;
 };
 
 export type MissingPersonReport = {

@@ -11,6 +11,7 @@ import {
   Modal,
   TextInput,
   Alert,
+  Vibration,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
@@ -62,7 +63,7 @@ const QUICK_ACTIONS: QuickAction[] = [
     icon: "location",
     color: "#059669",
     bg: "#ECFDF5",
-    route: "Tracking",
+    route: "TrackingTab",
   },
   {
     key: "reports",
@@ -78,7 +79,7 @@ const QUICK_ACTIONS: QuickAction[] = [
     icon: "notifications",
     color: "#DC2626",
     bg: "#FEF2F2",
-    route: "AlertsTab",
+    route: "CommunityTab",
   },
 ];
 
@@ -179,7 +180,7 @@ export default function HomeScreen({ navigation }: any) {
 
           <TouchableOpacity
             style={styles.bellButton}
-            onPress={() => navigation.navigate("AlertsTab")}
+            onPress={() => navigation.navigate("CommunityTab")}
             onLongPress={() => setPinModal(true)}
           >
             <Ionicons name="notifications-outline" size={22} color="#FFFFFF" />
@@ -203,8 +204,17 @@ export default function HomeScreen({ navigation }: any) {
 
         <View style={styles.sosSection}>
           <Text style={styles.sosLabel}>Emergency</Text>
-          <SOSButton onPress={() => navigation.navigate("HoldSOS")} />
-          <Text style={styles.sosHint}>Press and hold in an emergency</Text>
+          <SOSButton
+            onActivate={() => {
+              Vibration.vibrate([200, 200, 200]);
+              useSOSStore.getState().activate();
+              useSOSStore.getState().setCountdown(15);
+              navigation.navigate("Emergency");
+            }}
+          />
+          <Text style={styles.sosHint}>
+            Tap & hold 3 seconds to send SOS • release to cancel
+          </Text>
 
           {settings.hiddenButtonEnabled ? (
             <TouchableOpacity

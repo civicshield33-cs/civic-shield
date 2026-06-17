@@ -10,10 +10,46 @@ import {
   TextInput,
   Alert,
   Switch,
+  ActivityIndicator,
+  FlatList,
 } from "react-native";
+
+import LocationPinMap from "../components/LocationPinMap";
+import {
+  DEFAULT_MAP_CENTER,
+  formatPinLabel,
+  getTownCenter,
+  MapCoordinate,
+} from "../data/gambiaLocations";
+import { submitIncidentReport } from "../services/incidentService";
+import { getCurrentUserId } from "../services/authService";
+
+type Suggestion = {
+  name: string;
+  region: string;
+};
+
+const GAMBIA_LOCATIONS: Suggestion[] = [
+  { name: "Banjul", region: "Capital" },
+  { name: "Kanifing", region: "Urban Area" },
+  { name: "Serrekunda", region: "Kanifing" },
+  { name: "Brikama", region: "West Coast" },
+  { name: "Bakau", region: "Kanifing" },
+  { name: "Westfield", region: "Kanifing" },
+  { name: "Kololi", region: "Kanifing" },
+  { name: "Farafenni", region: "North Bank" },
+  { name: "Basse", region: "Upper River" },
+];
 
 export default function CrimeReportScreen({ navigation }: any) {
   const [modalVisible, setModalVisible] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [mapCenter, setMapCenter] = useState<MapCoordinate>(DEFAULT_MAP_CENTER);
+  const [centerRevision, setCenterRevision] = useState(0);
+  const [pin, setPin] = useState<MapCoordinate | null>(null);
   const [formData, setFormData] = useState({
     location: "",
     description: "",
@@ -21,6 +57,63 @@ export default function CrimeReportScreen({ navigation }: any) {
     shareMother: true,
     shareBrother: true,
   });
+
+  const applyLocation = (item: Suggestion) => {
+    setSearchText(item.name);
+    setFormData((prev) => ({ ...prev, location: item.name }));
+    setMapCenter(getTownCenter(item.name));
+    setCenterRevision((value) => value + 1);
+    setPin(null);
+    setShowSuggestions(false);
+  };
+
+  const handleSearch = (text: string) => {
+    setSearchText(text);
+    if (!text.trim()) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    const query = text.toLowerCase().trim();
+    const filtered = GAMBIA_LOCATIONS.filter((item) =>
+      item.name.toLowerCase().includes(query)
+    ).slice(0, 8);
+
+    setSuggestions(filtered);
+    setShowSuggestions(filtered.length > 0);
+
+    const exact = GAMBIA_LOCATIONS.find(
+      (item) => item.name.toLowerCase() === query
+    );
+    if (exact) {
+      setFormData((prev) => ({ ...prev, location: exact.name }));
+      setMapCenter(getTownCenter(exact.name));
+      setCenterRevision((value) => value + 1);
+      setPin(null);
+    }
+  };
+
+  const confirmSearch = () => {
+    const query = searchText.toLowerCase().trim();
+    if (!query) return;
+
+    const exact = GAMBIA_LOCATIONS.find(
+      (item) => item.name.toLowerCase() === query
+    );
+    if (exact) {
+      applyLocation(exact);
+      return;
+    }
+
+    if (suggestions[0]) {
+      applyLocation(suggestions[0]);
+    }
+  };
+
+  const selectLocation = (item: Suggestion) => {
+    applyLocation(item);
+  };
 
   const openReportForm = () => {
     setFormData({
@@ -30,27 +123,85 @@ export default function CrimeReportScreen({ navigation }: any) {
       shareMother: true,
       shareBrother: true,
     });
+    setSearchText("");
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setMapCenter(DEFAULT_MAP_CENTER);
+    setCenterRevision(0);
+    setPin(null);
     setModalVisible(true);
   };
 
-  const submitReport = () => {
+  const submitReport = async () => {
+    if (!formData.location.trim()) {
+      Alert.alert("Error", "Please select your area first");
+      return;
+    }
+
+    if (!pin) {
+      Alert.alert("Error", "Please pin your exact spot on the map");
+      return;
+    }
+
     if (!formData.description.trim()) {
       Alert.alert("Error", "Please describe the incident");
       return;
     }
 
-    Alert.alert(
-      "Report Submitted",
-      "Your Crime report has been sent to the Command Center.",
-      [{ text: "OK", onPress: () => setModalVisible(false) }]
-    );
+    setIsSubmitting(true);
+
+    try {
+      const userId = await getCurrentUserId();
+      const details = [
+        formData.description.trim(),
+        formData.time.trim() ? `Time: ${formData.time.trim()}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      const result = await submitIncidentReport({
+        userId,
+        type: "Crime",
+        description: details,
+        location: formData.location.trim(),
+        latitude: pin.latitude,
+        longitude: pin.longitude,
+      });
+
+      if (result.uploadFailed) {
+        Alert.alert(
+          "Upload Failed",
+          "We could not upload your report after 3 attempts. It was removed from this device.\n\nPlease check your connection and try again."
+        );
+        return;
+      }
+
+      Alert.alert(
+        "Report Submitted",
+        result.savedTo === "cloud"
+          ? "Your crime report is now visible in Community."
+          : "Your report is saved on this device. We'll keep retrying to upload it to the cloud.",
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              setModalVisible(false);
+              navigation.navigate("MainTabs", { screen: "CommunityTab" });
+            },
+          },
+        ]
+      );
+    } catch {
+      Alert.alert("Error", "Could not submit report. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#001F3F" />
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
@@ -68,7 +219,6 @@ export default function CrimeReportScreen({ navigation }: any) {
 
         <Text style={styles.sectionTitle}>Recent Crime Reports</Text>
 
-        {/* Sample Recent Reports */}
         <View style={styles.recentCard}>
           <Text style={styles.recentTitle}>Theft at Serrekunda Market</Text>
           <Text style={styles.recentInfo}>2 hours ago • West Coast Region</Text>
@@ -80,73 +230,142 @@ export default function CrimeReportScreen({ navigation }: any) {
         </View>
       </ScrollView>
 
-      {/* Report Form Modal */}
       <Modal
         animationType="slide"
-        transparent={true}
+        transparent
         visible={modalVisible}
         onRequestClose={() => setModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Report Crime</Text>
+          <ScrollView
+            contentContainerStyle={styles.modalScroll}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Report Crime</Text>
 
-            {/* Photo Upload */}
-            <TouchableOpacity style={styles.uploadArea}>
-              <Text style={styles.uploadIcon}>📸</Text>
-              <Text style={styles.uploadText}>Upload Photo / Evidence</Text>
-            </TouchableOpacity>
+              <Text style={styles.stepLabel}>Your area</Text>
+              <Text style={styles.stepHint}>
+                Centers the map — your pin below is what we save
+              </Text>
 
-            <TextInput
-              style={styles.input}
-              placeholder="Incident Location"
-              value={formData.location}
-              onChangeText={(text) => setFormData({ ...formData, location: text })}
-            />
-
-            <TextInput
-              style={styles.input}
-              placeholder="Date & Time of Incident"
-              value={formData.time}
-              onChangeText={(text) => setFormData({ ...formData, time: text })}
-            />
-
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="Describe the crime in detail..."
-              value={formData.description}
-              onChangeText={(text) => setFormData({ ...formData, description: text })}
-              multiline
-              numberOfLines={5}
-            />
-
-            <Text style={styles.shareTitle}>Share With</Text>
-            <View style={styles.shareRow}>
-              <Text style={styles.shareLabel}>Mother</Text>
-              <Switch
-                value={formData.shareMother}
-                onValueChange={(val) => setFormData({ ...formData, shareMother: val })}
+              <TextInput
+                style={styles.input}
+                placeholder="Search location in The Gambia"
+                value={searchText}
+                onChangeText={handleSearch}
+                onSubmitEditing={confirmSearch}
+                returnKeyType="search"
               />
-            </View>
-            <View style={styles.shareRow}>
-              <Text style={styles.shareLabel}>Brother</Text>
-              <Switch
-                value={formData.shareBrother}
-                onValueChange={(val) => setFormData({ ...formData, shareBrother: val })}
+
+              {showSuggestions ? (
+                <FlatList
+                  data={suggestions}
+                  keyExtractor={(item) => item.name}
+                  style={styles.suggestions}
+                  scrollEnabled={false}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      onPress={() => selectLocation(item)}
+                      style={styles.suggestionItem}
+                    >
+                      <Text style={styles.suggestionName}>{item.name}</Text>
+                      <Text style={styles.suggestionRegion}>
+                        {item.region} Region
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                />
+              ) : null}
+
+              <Text style={styles.stepLabel}>Pin your exact spot</Text>
+              <Text style={styles.stepHint}>
+                Tap or drag on the map to mark where it happened
+              </Text>
+
+              <LocationPinMap
+                center={mapCenter}
+                pin={pin}
+                onPinChange={setPin}
+                centerRevision={centerRevision}
               />
+
+              {pin ? (
+                <>
+                  <Text style={styles.pinSetHint}>{formatPinLabel(pin)}</Text>
+                  <TouchableOpacity onPress={() => setPin(null)}>
+                    <Text style={styles.clearPinText}>Clear pin</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <Text style={styles.pinRequiredHint}>
+                  Tap the map to place your pin — required before you can submit.
+                </Text>
+              )}
+
+              <TouchableOpacity style={styles.uploadArea}>
+                <Text style={styles.uploadIcon}>📸</Text>
+                <Text style={styles.uploadText}>Upload Photo / Evidence (optional)</Text>
+              </TouchableOpacity>
+
+              <TextInput
+                style={styles.input}
+                placeholder="Date & Time of Incident"
+                value={formData.time}
+                onChangeText={(text) => setFormData({ ...formData, time: text })}
+              />
+
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder="Describe the crime in detail..."
+                value={formData.description}
+                onChangeText={(text) =>
+                  setFormData({ ...formData, description: text })
+                }
+                multiline
+                numberOfLines={5}
+              />
+
+              <Text style={styles.shareTitle}>Share With</Text>
+              <View style={styles.shareRow}>
+                <Text style={styles.shareLabel}>Mother</Text>
+                <Switch
+                  value={formData.shareMother}
+                  onValueChange={(val) =>
+                    setFormData({ ...formData, shareMother: val })
+                  }
+                />
+              </View>
+              <View style={styles.shareRow}>
+                <Text style={styles.shareLabel}>Brother</Text>
+                <Switch
+                  value={formData.shareBrother}
+                  onValueChange={(val) =>
+                    setFormData({ ...formData, shareBrother: val })
+                  }
+                />
+              </View>
+
+              <TouchableOpacity
+                style={styles.publishButton}
+                onPress={submitReport}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.publishButtonText}>Submit Crime Report</Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setModalVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
             </View>
-
-            <TouchableOpacity style={styles.publishButton} onPress={submitReport}>
-              <Text style={styles.publishButtonText}>Submit Crime Report</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={() => setModalVisible(false)}
-            >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
+          </ScrollView>
         </View>
       </Modal>
     </View>
@@ -212,26 +431,41 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  /* Modal */
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
+  },
+  modalScroll: {
+    flexGrow: 1,
     justifyContent: "center",
-    alignItems: "center",
+    paddingVertical: 24,
+    paddingHorizontal: 16,
   },
   modalContent: {
     backgroundColor: "white",
     borderRadius: 20,
-    width: "90%",
+    width: "100%",
+    maxWidth: 420,
+    alignSelf: "center",
     padding: 24,
-    maxHeight: "85%",
   },
   modalTitle: {
     fontSize: 22,
     fontWeight: "700",
     color: "#001F3F",
-    marginBottom: 20,
+    marginBottom: 16,
     textAlign: "center",
+  },
+  stepLabel: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#001F3F",
+    marginBottom: 4,
+  },
+  stepHint: {
+    fontSize: 13,
+    color: "#64748B",
+    marginBottom: 10,
   },
   uploadArea: {
     borderWidth: 2,
@@ -241,7 +475,8 @@ const styles = StyleSheet.create({
     height: 110,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 20,
+    marginBottom: 16,
+    marginTop: 8,
   },
   uploadIcon: { fontSize: 40, marginBottom: 8 },
   uploadText: { fontSize: 16, color: "#6B7280" },
@@ -256,7 +491,41 @@ const styles = StyleSheet.create({
   },
   textArea: { height: 130, textAlignVertical: "top" },
 
-  shareTitle: { fontSize: 17, fontWeight: "600", marginTop: 10, marginBottom: 12 },
+  suggestions: {
+    maxHeight: 160,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  suggestionItem: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderColor: "#F1F5F9",
+  },
+  suggestionName: { fontWeight: "600", color: "#1F2937" },
+  suggestionRegion: { fontSize: 12, color: "#6B7280", marginTop: 2 },
+
+  pinSetHint: {
+    fontSize: 13,
+    color: "#059669",
+    marginBottom: 6,
+  },
+  pinRequiredHint: {
+    fontSize: 13,
+    color: "#64748B",
+    marginBottom: 12,
+  },
+  clearPinText: {
+    fontSize: 13,
+    color: "#EF4444",
+    fontWeight: "600",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+
+  shareTitle: { fontSize: 17, fontWeight: "600", marginTop: 4, marginBottom: 12 },
   shareRow: {
     flexDirection: "row",
     justifyContent: "space-between",

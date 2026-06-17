@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -6,14 +6,21 @@ import {
   ScrollView,
   StatusBar,
   TouchableOpacity,
+  Alert,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 
-import MapView, { Marker } from "react-native-maps";
+import CommunityAlertsMap from "../components/CommunityAlertsMap";
 import AlertCard from "../components/AlertCard";
-import { subscribeCommunityAlerts } from "../services/incidentService";
+import {
+  fetchCommunityAlerts,
+  subscribeCommunityAlerts,
+  subscribeReportSyncFailures,
+} from "../services/incidentService";
 import { CommunityAlert } from "../types/emergency";
 
-function alertEmoji(type: CommunityAlert["type"]) {
+function alertEmoji(type: CommunityAlert["type"], title = "") {
+  if (title.toLowerCase().includes("missing")) return "👤";
   switch (type) {
     case "fire":
       return "🔥";
@@ -47,6 +54,22 @@ export default function CommunityAlertsScreen({ navigation }: any) {
     return subscribeCommunityAlerts(setAlerts);
   }, []);
 
+  useEffect(() => {
+    return subscribeReportSyncFailures((failures) => {
+      const titles = failures.map((item) => item.title).join(", ");
+      Alert.alert(
+        "Upload Failed",
+        `Could not upload after 3 attempts: ${titles}.\n\nThe report was removed from this device. Please try again when you're back online.`
+      );
+    });
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchCommunityAlerts().then(setAlerts);
+    }, [])
+  );
+
   const filteredAlerts = useMemo(() => {
     if (activeTab === "Nearby") {
       return alerts.filter((a) =>
@@ -61,18 +84,14 @@ export default function CommunityAlertsScreen({ navigation }: any) {
     return alerts;
   }, [activeTab, alerts]);
 
-  const latestMarker = filteredAlerts[0];
-
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#001F3F" />
 
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backArrow}>←</Text>
-        </TouchableOpacity>
+        <View style={styles.headerSpacer} />
 
-        <Text style={styles.headerTitle}>Community Alerts</Text>
+        <Text style={styles.headerTitle}>Community</Text>
 
         <TouchableOpacity onPress={() => navigation.navigate("HoldSOS")}>
           <Text style={styles.sosBtn}>🚨</Text>
@@ -80,29 +99,7 @@ export default function CommunityAlertsScreen({ navigation }: any) {
       </View>
 
       <View style={styles.mapContainer}>
-        <MapView
-          style={styles.map}
-          mapType="satellite"
-          initialRegion={{
-            latitude: 13.4549,
-            longitude: -16.579,
-            latitudeDelta: 1.2,
-            longitudeDelta: 1.2,
-          }}
-        >
-          <Marker
-            coordinate={{ latitude: 13.4549, longitude: -16.579 }}
-            title="Banjul"
-          />
-          {latestMarker ? (
-            <Marker
-              coordinate={{ latitude: 13.438, longitude: -16.678 }}
-              title={latestMarker.title}
-              description={latestMarker.location}
-              pinColor="red"
-            />
-          ) : null}
-        </MapView>
+        <CommunityAlertsMap alerts={filteredAlerts} style={styles.map} />
 
         <View style={styles.liveBadge}>
           <Text style={styles.liveText}>🔴 LIVE ALERTS</Text>
@@ -132,33 +129,17 @@ export default function CommunityAlertsScreen({ navigation }: any) {
           <Text style={styles.emptyText}>No alerts right now. Stay safe.</Text>
         ) : (
           filteredAlerts.map((alert) => (
-            <View key={alert.id} style={styles.alertWrapper}>
-              <AlertCard
-                emoji={alertEmoji(alert.type)}
-                title={alert.title}
-                location={alert.location}
-                time={timeAgo(alert.createdAt)}
-              />
-
-              <View
-                style={[
-                  styles.severity,
-                  alert.severity === "critical" && {
-                    backgroundColor: "#EF4444",
-                  },
-                  alert.severity === "high" && {
-                    backgroundColor: "#F59E0B",
-                  },
-                  alert.severity === "medium" && {
-                    backgroundColor: "#3B82F6",
-                  },
-                ]}
-              >
-                <Text style={styles.severityText}>
-                  {alert.severity.toUpperCase()}
-                </Text>
-              </View>
-            </View>
+            <AlertCard
+              key={alert.id}
+              emoji={alertEmoji(alert.type, alert.title)}
+              title={alert.title}
+              location={alert.location}
+              time={timeAgo(alert.createdAt)}
+              description={alert.description}
+              onPress={() =>
+                navigation.navigate("CommunityAlertDetail", { alert })
+              }
+            />
           ))
         )}
       </ScrollView>
@@ -182,9 +163,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  backArrow: {
-    fontSize: 28,
-    color: "#fff",
+  headerSpacer: {
+    width: 28,
   },
 
   headerTitle: {
@@ -264,25 +244,5 @@ const styles = StyleSheet.create({
     color: "#64748B",
     fontSize: 15,
     marginTop: 24,
-  },
-
-  alertWrapper: {
-    marginBottom: 12,
-  },
-
-  severity: {
-    alignSelf: "flex-start",
-    marginTop: -10,
-    marginLeft: 15,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: "#10B981",
-  },
-
-  severityText: {
-    color: "#fff",
-    fontSize: 11,
-    fontWeight: "700",
   },
 });

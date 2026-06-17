@@ -8,6 +8,7 @@ import {
   ScrollView,
   Share,
   Vibration,
+  Platform,
 } from "react-native";
 
 import StatusRow from "../components/StatusRow";
@@ -17,7 +18,7 @@ import { getCurrentUserId } from "../services/authService";
 import { getLocalContacts } from "../services/contactService";
 import {
   createSosIncident,
-  getCurrentLocation,
+  resolveSosLocation,
   markContactsNotified,
   notifyEmergencyContacts,
 } from "../services/sosService";
@@ -55,10 +56,15 @@ export default function EmergencyScreen({ navigation, route }: any) {
     latitude: number;
     longitude: number;
   } | null>(null);
+  const [locationArea, setLocationArea] = useState("");
+  const [locationSource, setLocationSource] = useState<"gps" | "nearby">(
+    "gps"
+  );
   const [trackingUrl, setTrackingUrl] = useState("");
   const [currentStep, setCurrentStep] = useState(0);
   const [ready, setReady] = useState(false);
   const startedRef = useRef(false);
+  const wentToTrackingRef = useRef(false);
 
   useEffect(() => {
     if (startedRef.current) return;
@@ -69,24 +75,24 @@ export default function EmergencyScreen({ navigation, route }: any) {
         Vibration.vibrate([200, 200, 300]);
       }
 
-      const [user, point, userId] = await Promise.all([
-        getStoredUser(),
-        getCurrentLocation(),
-        getCurrentUserId(),
-      ]);
+      const user = await getStoredUser();
+      const userId = await getCurrentUserId();
+      const resolved = await resolveSosLocation("Banjul");
 
-      if (point) {
-        setLocation({
-          latitude: point.latitude,
-          longitude: point.longitude,
-        });
-      }
+      setLocation({
+        latitude: resolved.point.latitude,
+        longitude: resolved.point.longitude,
+      });
+      setLocationArea(resolved.areaLabel);
+      setLocationSource(resolved.source);
 
       const incident = await createSosIncident({
         userId,
         userName: user?.fullName || "Civic Shield User",
         userPhone: user?.phone || "",
-        location: point,
+        location: resolved.point,
+        locationArea: resolved.areaLabel,
+        locationSource: resolved.source,
       });
 
       setIncidentId(incident.id);
@@ -94,28 +100,44 @@ export default function EmergencyScreen({ navigation, route }: any) {
       setTrackingUrl(getTrackingUrl(incident.id));
       setCurrentStep(1);
 
-      await startEmergencyRecording();
+      try {
+        await startEmergencyRecording();
+      } catch {
+        // Microphone unavailable on web/some devices — SOS still continues.
+      }
       setCurrentStep(2);
 
-      const contacts = await getLocalContacts();
-      if (contacts.length > 0) {
-        await notifyEmergencyContacts(
-          contacts,
-          incident.id,
-          user?.fullName || "A Civic Shield user"
-        );
-        await markContactsNotified(incident.id);
-        setContactsNotified(true);
+      try {
+        const contacts = await getLocalContacts();
+        if (contacts.length > 0) {
+          await notifyEmergencyContacts(
+            contacts,
+            incident.id,
+            user?.fullName || "A Civic Shield user"
+          );
+          await markContactsNotified(incident.id);
+          setContactsNotified(true);
+        }
+      } catch {
+        // Contact alerts are best-effort; don't block emergency mode.
       }
+
       setCurrentStep(4);
       setReady(true);
+      setCountdown(15);
     };
 
     boot().catch(() => {
-      showAlert("Error", "Could not fully start emergency mode.");
+      const { incidentId } = useSOSStore.getState();
+      if (!incidentId) {
+        showAlert(
+          "Error",
+          "Could not start emergency mode. Please try again or call 117."
+        );
+      }
       setReady(true);
     });
-  }, [activate, setContactsNotified, setIncidentId]);
+  }, [activate, setContactsNotified, setIncidentId, silent]);
 
   useEffect(() => {
     if (!ready) return;
@@ -128,12 +150,20 @@ export default function EmergencyScreen({ navigation, route }: any) {
   }, [currentStep, ready]);
 
   useEffect(() => {
-    if (countdown === 0) {
+    if (!ready) return;
+
+    if (countdown <= 0) {
+      if (wentToTrackingRef.current) return;
+      wentToTrackingRef.current = true;
+
       const { incidentId } = useSOSStore.getState();
       if (incidentId) {
         stopEmergencyRecording(incidentId).catch(() => undefined);
       }
-      navigation.replace("Tracking", { incidentId });
+      navigation.replace("MainTabs", {
+        screen: "TrackingTab",
+        params: { incidentId },
+      });
       return;
     }
 
@@ -142,13 +172,21 @@ export default function EmergencyScreen({ navigation, route }: any) {
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [countdown, navigation, setCountdown]);
+  }, [countdown, navigation, ready, setCountdown]);
+
+  const goToTrackingNow = () => {
+    setCountdown(0);
+  };
 
   const shareIncident = async () => {
     if (!trackingUrl) return;
-    await Share.share({
-      message: `🚨 EMERGENCY ALERT LIVE\n\nTrack incident:\n${trackingUrl}`,
-    });
+    try {
+      await Share.share({
+        message: `🚨 EMERGENCY ALERT LIVE\n\nTrack incident:\n${trackingUrl}`,
+      });
+    } catch {
+      // Share cancelled or unavailable.
+    }
   };
 
   const cancelEmergency = async () => {
@@ -179,52 +217,104 @@ export default function EmergencyScreen({ navigation, route }: any) {
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator
+        keyboardShouldPersistTaps="handled"
+        bounces
+      >
         {!silent ? <Text style={styles.bellIcon}>🚨</Text> : null}
         <Text style={styles.title}>{headerTitle}</Text>
         <Text style={styles.subtitle}>{headerSubtitle}</Text>
 
         <View style={styles.statusContainer}>
           {STATUS_STEPS.map((item, index) => (
-            <StatusRow key={item} text={item} active={index <= currentStep} />
+            <StatusRow
+              key={item}
+              text={item}
+              checked={index <= currentStep}
+            />
           ))}
         </View>
 
         {location ? (
           <View style={styles.locationBox}>
-            <Text style={styles.locationTitle}>📍 Live Location Captured</Text>
-            <Text style={styles.locationText}>
+            <Text style={styles.locationTitle}>
+              📍{" "}
+              {locationSource === "gps"
+                ? "Live Location Captured"
+                : "Nearby Area Recorded"}
+            </Text>
+            <Text style={styles.locationText}>{locationArea}</Text>
+            <Text style={styles.locationCoords}>
               {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}
             </Text>
+            {locationSource === "nearby" ? (
+              <Text style={styles.locationNote}>
+                GPS permission denied — using nearest known area. Enable location
+                on Tracking for live updates.
+              </Text>
+            ) : null}
           </View>
         ) : null}
 
         <TouchableOpacity style={styles.shareBtn} onPress={shareIncident}>
           <Text style={styles.shareText}>🔗 Share Live Incident</Text>
         </TouchableOpacity>
-      </ScrollView>
 
-      <TouchableOpacity style={styles.cancelButton} onPress={cancelEmergency}>
-        <Text style={styles.cancelText}>Cancel ({countdown}s)</Text>
-      </TouchableOpacity>
+        <Text style={styles.autoContinueText}>
+          Continuing to live tracking in {countdown}s…
+        </Text>
+
+        <TouchableOpacity style={styles.continueButton} onPress={goToTrackingNow}>
+          <Text style={styles.continueText}>Go to live tracking now</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.cancelButton} onPress={cancelEmergency}>
+          <Text style={styles.cancelText}>Cancel SOS</Text>
+        </TouchableOpacity>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#B91C1C" },
-  header: { paddingTop: 50, paddingHorizontal: 20 },
-  backArrow: { fontSize: 28, color: "#FFFFFF", fontWeight: "bold" },
+  container: {
+    flex: 1,
+    backgroundColor: "#B91C1C",
+  },
+  header: {
+    paddingTop: 50,
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+  },
+  backArrow: {
+    fontSize: 28,
+    color: "#FFFFFF",
+    fontWeight: "bold",
+  },
+  scroll: {
+    flex: 1,
+    ...(Platform.OS === "web"
+      ? ({ overflowY: "auto", WebkitOverflowScrolling: "touch" } as object)
+      : null),
+  },
   scrollContent: {
+    flexGrow: 1,
     alignItems: "center",
     paddingHorizontal: 25,
-    paddingTop: 20,
+    paddingTop: 12,
     paddingBottom: 40,
   },
-  bellIcon: { fontSize: 90, marginTop: 20, marginBottom: 10 },
+  bellIcon: {
+    fontSize: 72,
+    marginTop: 8,
+    marginBottom: 10,
+  },
   title: {
     color: "#FFFFFF",
-    fontSize: 30,
+    fontSize: 28,
     fontWeight: "800",
     textAlign: "center",
     marginBottom: 8,
@@ -234,40 +324,67 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: "center",
     opacity: 0.9,
-    marginBottom: 30,
+    marginBottom: 24,
   },
   statusContainer: {
     width: "100%",
     backgroundColor: "rgba(255,255,255,0.18)",
     borderRadius: 16,
     padding: 20,
-    marginBottom: 25,
+    marginBottom: 20,
   },
   locationBox: {
     backgroundColor: "rgba(255,255,255,0.15)",
     padding: 15,
     borderRadius: 14,
     width: "100%",
-    marginBottom: 20,
+    marginBottom: 16,
   },
   locationTitle: { color: "#fff", fontWeight: "700", marginBottom: 5 },
-  locationText: { color: "#fff", opacity: 0.9 },
+  locationText: { color: "#fff", fontWeight: "600", marginBottom: 4 },
+  locationCoords: { color: "#fff", opacity: 0.9 },
+  locationNote: {
+    color: "#FEE2E2",
+    fontSize: 12,
+    marginTop: 8,
+    lineHeight: 18,
+  },
   shareBtn: {
     backgroundColor: "#2563EB",
     padding: 15,
     borderRadius: 12,
     width: "100%",
     alignItems: "center",
+    marginBottom: 16,
   },
   shareText: { color: "#fff", fontWeight: "700" },
+  autoContinueText: {
+    color: "#FEE2E2",
+    fontSize: 14,
+    textAlign: "center",
+    marginBottom: 12,
+  },
+  continueButton: {
+    backgroundColor: "#FFFFFF",
+    width: "100%",
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  continueText: {
+    color: "#B91C1C",
+    fontSize: 17,
+    fontWeight: "800",
+  },
   cancelButton: {
     backgroundColor: "rgba(255,255,255,0.15)",
-    marginHorizontal: 25,
-    marginBottom: 40,
-    paddingVertical: 18,
+    width: "100%",
+    paddingVertical: 16,
     borderRadius: 12,
     borderWidth: 2,
     borderColor: "#FFFFFF",
+    marginTop: 4,
   },
   cancelText: {
     color: "#FFFFFF",

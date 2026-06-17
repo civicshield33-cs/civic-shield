@@ -63,18 +63,28 @@ export default function MissingPersonScreen({ navigation }: any) {
 
     try {
       const userId = await getCurrentUserId();
-      await submitMissingPersonReport({
+      const result = await submitMissingPersonReport({
         userId,
         fullName: fullName.trim(),
         age: age.trim() || undefined,
         lastSeen: lastSeen.trim(),
         location: location.trim(),
-        photoUri: selectedImage,
+        photoUri: selectedImage || undefined,
       });
+
+      if (result.uploadFailed) {
+        Alert.alert(
+          "Upload Failed",
+          "We could not upload your report after 3 attempts. It was removed from this device.\n\nPlease check your connection and try again."
+        );
+        return;
+      }
 
       Alert.alert(
         "Alert Published",
-        "Your missing person report has been submitted. Police and the community will be notified.",
+        result.savedTo === "cloud"
+          ? "Your missing person report has been submitted. Police and the community will be notified."
+          : "Your report is saved on this device. We'll keep retrying to upload it to the cloud.",
         [{ text: "OK", onPress: () => navigation.goBack() }]
       );
     } catch {
@@ -110,9 +120,9 @@ export default function MissingPersonScreen({ navigation }: any) {
               <View style={styles.plusCircle}>
                 <Text style={styles.plusIcon}>+</Text>
               </View>
-              <Text style={styles.photoText}>Upload Photo</Text>
+              <Text style={styles.photoText}>Upload Photo (optional)</Text>
               <Text style={styles.photoSubtext}>
-                (Tap to add photo of missing person)
+                Tap to add a photo of the missing person
               </Text>
             </>
           )}

@@ -4,6 +4,7 @@ import {
   View,
   Text,
   StyleSheet,
+  TouchableOpacity,
 } from "react-native";
 
 export default function AlertCard({
@@ -11,15 +12,29 @@ export default function AlertCard({
   title,
   location,
   time,
-}: any) {
+  description,
+  onPress,
+}: {
+  emoji: string;
+  title: string;
+  location: string;
+  time: string;
+  description?: string;
+  onPress?: () => void;
+}) {
   return (
-    <View style={styles.card}>
+    <TouchableOpacity
+      style={styles.card}
+      onPress={onPress}
+      activeOpacity={onPress ? 0.85 : 1}
+      disabled={!onPress}
+    >
 
       <Text style={styles.icon}>
         {emoji}
       </Text>
 
-      <View>
+      <View style={styles.content}>
         <Text style={styles.title}>
           {title}
         </Text>
@@ -28,20 +43,23 @@ export default function AlertCard({
           {location}
         </Text>
 
+        {description ? (
+          <Text style={styles.description}>{description}</Text>
+        ) : null}
+
         <Text style={styles.time}>
           {time}
         </Text>
       </View>
 
-    </View>
+    </TouchableOpacity>
   );
 }
 
 const styles =
   StyleSheet.create({
     card: {
-      backgroundColor:
-        "white",
+      backgroundColor: "white",
       borderRadius: 15,
       padding: 18,
       flexDirection: "row",
@@ -53,9 +71,20 @@ const styles =
       marginRight: 15,
     },
 
+    content: {
+      flex: 1,
+    },
+
     title: {
       fontSize: 18,
       fontWeight: "700",
+    },
+
+    description: {
+      color: "#475569",
+      marginTop: 6,
+      fontSize: 14,
+      lineHeight: 20,
     },
 
     time: {

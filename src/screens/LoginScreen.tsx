@@ -83,12 +83,6 @@ export default function LoginScreen({ navigation }: any) {
       <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
 
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={styles.backArrow}>←</Text>
-        </TouchableOpacity>
 
         <View style={styles.headerTextWrap}>
           <Text style={styles.headerTitle}>Login</Text>

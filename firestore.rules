@@ -31,7 +31,8 @@ service cloud.firestore {
 
     match /community_alerts/{alertId} {
       allow read: if true;
-      allow create, update: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
 
     match /missing_persons/{reportId} {

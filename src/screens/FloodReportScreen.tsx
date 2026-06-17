@@ -94,7 +94,7 @@ export default function FloodReportScreen({ navigation }: any) {
 
             <TouchableOpacity style={styles.uploadArea}>
               <Text style={styles.uploadIcon}>📸</Text>
-              <Text style={styles.uploadText}>Upload Photos / Evidence</Text>
+              <Text style={styles.uploadText}>Upload Photos / Evidence (optional)</Text>
             </TouchableOpacity>
 
             <TextInput
