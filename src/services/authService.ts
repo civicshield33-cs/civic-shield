@@ -6,12 +6,14 @@ import {
 } from "firebase/auth";
 
 import { getFirebaseAuth, getFirestoreDb, isFirebaseConfigured } from "./firebase";
+import { clearFirebaseWebPersistence } from "./authRecovery";
 import {
   loadUserProfileFromFirestore,
   saveUserProfileToFirestore,
 } from "./userProfileService";
 import {
   AppUser,
+  clearStoredUser,
   getStoredUser,
   login as localLogin,
   normalizeEmail,
@@ -243,4 +245,6 @@ export async function getCurrentUserId() {
 export async function logoutAccount() {
   const auth = getFirebaseAuth();
   if (auth) await signOut(auth).catch(() => undefined);
+  await clearStoredUser();
+  await clearFirebaseWebPersistence();
 }

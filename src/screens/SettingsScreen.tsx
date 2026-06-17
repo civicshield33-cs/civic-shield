@@ -17,7 +17,10 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useUserProfile } from "../hooks/useUserProfile";
 import { useSettingsStore } from "../store/settingsStore";
 import { useContactStore } from "../store/contactStore";
+import ConfirmModal from "../components/ConfirmModal";
 import { getPendingQueueCount, syncOfflineQueue } from "../services/offlineQueueService";
+import { logoutAccount } from "../services/authService";
+import { resetToWelcome } from "../utils/navigation";
 
 export default function SettingsScreen({ navigation }: any) {
   const { user, firstName } = useUserProfile();
@@ -31,6 +34,7 @@ export default function SettingsScreen({ navigation }: any) {
   const [phraseDraft, setPhraseDraft] = useState(settings.voicePhrase);
   const [pinDraft, setPinDraft] = useState(settings.silentPin);
   const [pendingQueue, setPendingQueue] = useState(0);
+  const [logoutModalVisible, setLogoutModalVisible] = useState(false);
 
   const languages = [
     "English",
@@ -65,6 +69,16 @@ export default function SettingsScreen({ navigation }: any) {
 
   const testSOS = () => {
     Alert.alert("TEST MODE", "Simulation only — no real alert sent.");
+  };
+
+  const handleLogout = () => {
+    setLogoutModalVisible(true);
+  };
+
+  const confirmLogout = async () => {
+    await logoutAccount();
+    setLogoutModalVisible(false);
+    resetToWelcome(navigation);
   };
 
   return (
@@ -306,7 +320,11 @@ export default function SettingsScreen({ navigation }: any) {
           <Text style={styles.onboardText}>Replay safety onboarding</Text>
         </TouchableOpacity>
 
-        <View style={styles.adminSection}>
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <Text style={styles.logoutText}>Log out</Text>
+        </TouchableOpacity>
+
+        {/* <View style={styles.adminSection}>
           <Text style={styles.adminHeader}>Command Center</Text>
           <TouchableOpacity
             style={styles.commandCenterButton}
@@ -316,7 +334,7 @@ export default function SettingsScreen({ navigation }: any) {
             <Text style={styles.commandCenterText}>Government operator login</Text>
             <Text style={styles.commandCenterArrow}>›</Text>
           </TouchableOpacity>
-        </View>
+        </View> */}
       </ScrollView>
 
       <Modal visible={modalVisible} transparent animationType="slide">
@@ -399,6 +417,17 @@ export default function SettingsScreen({ navigation }: any) {
           </View>
         </View>
       </Modal>
+
+      <ConfirmModal
+        visible={logoutModalVisible}
+        title="Log out"
+        message="Are you sure you want to sign out of Civic Shield?"
+        confirmLabel="Log out"
+        cancelLabel="Stay signed in"
+        destructive
+        onConfirm={confirmLogout}
+        onCancel={() => setLogoutModalVisible(false)}
+      />
     </View>
   );
 }
@@ -475,6 +504,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   onboardText: { color: "#2563EB", fontWeight: "600" },
+  logoutButton: {
+    marginTop: 8,
+    backgroundColor: "#fff",
+    borderWidth: 1.5,
+    borderColor: "#FECACA",
+    padding: 16,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  logoutText: { color: "#DC2626", fontWeight: "700", fontSize: 16 },
   queueBanner: {
     backgroundColor: "#FEF3C7",
     padding: 12,

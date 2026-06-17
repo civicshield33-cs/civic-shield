@@ -50,6 +50,10 @@ export async function saveUser(user: AppUser) {
   await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
+export async function clearStoredUser() {
+  await AsyncStorage.removeItem(USER_KEY);
+}
+
 export async function login(
   identifier: string,
   password: string

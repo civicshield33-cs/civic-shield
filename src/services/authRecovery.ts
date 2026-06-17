@@ -7,11 +7,8 @@ import { signOut } from "firebase/auth";
  * Clears orphaned Firebase web sessions that cause accounts:lookup 400 errors
  * when IndexedDB has an invalid/expired token but no local app user.
  */
-export async function clearStaleFirebaseWebSession() {
+export async function clearFirebaseWebPersistence() {
   if (Platform.OS !== "web" || typeof indexedDB === "undefined") return;
-
-  const localUser = await getStoredUser();
-  if (localUser) return;
 
   const dbNames = [
     "firebaseLocalStorageDb",
@@ -33,6 +30,15 @@ export async function clearStaleFirebaseWebSession() {
         })
     )
   );
+}
+
+export async function clearStaleFirebaseWebSession() {
+  if (Platform.OS !== "web" || typeof indexedDB === "undefined") return;
+
+  const localUser = await getStoredUser();
+  if (localUser) return;
+
+  await clearFirebaseWebPersistence();
 }
 
 export async function syncFirebaseAuthSession() {
